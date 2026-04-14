@@ -15,6 +15,19 @@ from pathlib import Path
 DB_PATH = Path(__file__).parent / "prices.db"
 
 
+def _name_tokens(name: str) -> list:
+    """Разбивает название на токены для поиска.
+    'RTX5060' → ['rtx', '5060', 'rtx5060'] — ищем и слипшееся и раздельное."""
+    s = name.lower()
+    # Исходные слова
+    raw = re.findall(r"[a-zа-яё0-9]+", s)
+    # Разбиваем слипшиеся буква+цифра: 'rtx5060' → 'rtx 5060'
+    split = re.sub(r"([a-zа-яё])(\d)", r"\1 \2", s)
+    split = re.sub(r"(\d)([a-zа-яё])", r"\1 \2", split)
+    expanded = re.findall(r"[a-zа-яё0-9]+", split)
+    return list(set(raw + expanded))
+
+
 def _make_slug(name: str) -> str:
     """Генерирует URL-slug из названия товара."""
     s = name.lower()
@@ -293,7 +306,7 @@ def search_products(query=None, brand=None, chip=None, sources=None):
             products = [
                 p for p in products
                 if all(
-                    any(w.startswith(qw) for w in re.findall(r"[a-zа-яё0-9]+", p["name"].lower()))
+                    any(w.startswith(qw) for w in _name_tokens(p["name"]))
                     for qw in query_words
                 )
             ]

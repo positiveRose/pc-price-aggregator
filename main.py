@@ -43,11 +43,16 @@ def filter_by_query(items, query):
     """
     Фильтрует список по поисковому запросу (начало слова).
     "RTX 5070" найдёт "RTX 5070 Ti", но не "RTX 50700".
+    'RTX5060' без пробела тоже найдёт поиск '5060'.
     """
     query_words = query.lower().split()
     results = []
     for item in items:
-        name_words = re.findall(r"[a-zа-яё0-9]+", item["name"].lower())
+        s = item["name"].lower()
+        raw = re.findall(r"[a-zа-яё0-9]+", s)
+        split = re.sub(r"([a-zа-яё])(\d)", r"\1 \2", s)
+        split = re.sub(r"(\d)([a-zа-яё])", r"\1 \2", split)
+        name_words = list(set(raw + re.findall(r"[a-zа-яё0-9]+", split)))
         if all(
             any(nw.startswith(qw) for nw in name_words)
             for qw in query_words
