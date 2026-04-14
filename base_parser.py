@@ -31,7 +31,14 @@ class BaseParser(ABC):
     def _create_browser(self, playwright):
         """Создаёт браузер и страницу со stealth."""
         launcher = getattr(playwright, self.BROWSER)
-        browser = launcher.launch(headless=True)
+        browser = launcher.launch(
+            headless=True,
+            args=[
+                # Используем системный DNS-резолвер вместо встроенного DoH
+                "--disable-features=SecureDns",
+                "--dns-prefetch-disable",
+            ],
+        )
 
         context_opts = {
             "viewport": {"width": 1920, "height": 1080},
