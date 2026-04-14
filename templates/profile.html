@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}Профиль{% endblock %}
+
+{% block content %}
+<div class="profile-page">
+<div class="profile-wrap">
+
+    <!-- Шапка профиля -->
+    <div class="profile-hero">
+        <div class="profile-avatar">
+            {{ (user.username or user.email)[0] | upper }}
+        </div>
+        <div class="profile-hero-info">
+            <h1 class="profile-name">{{ user.username or 'Без имени' }}</h1>
+            <p class="profile-email">{{ user.email }}</p>
+            <div class="profile-meta">
+                <span class="profile-badge">
+                    {% if user.google_id %}Google аккаунт{% else %}Email аккаунт{% endif %}
+                </span>
+                <span class="profile-badge">Зарегистрирован {{ user.created_at[:10] }}</span>
+            </div>
+        </div>
+    </div>
+
+    {% if success %}
+    <div class="alert-success" style="margin: 0 2rem 1.5rem;">{{ success }}</div>
+    {% endif %}
+
+    <div class="profile-body">
+
+        <!-- Левая колонка -->
+        <div class="profile-col">
+
+            <div class="profile-card">
+                <div class="profile-card-header">
+                    <span class="profile-card-icon">✏️</span>
+                    <h2>Основные данные</h2>
+                </div>
+                <form method="post" action="/profile" class="profile-form">
+                    <div class="field-group">
+                        <label class="form-label">Email</label>
+                        <div class="input-wrapper">
+                            <input type="text" class="form-input" value="{{ user.email }}" disabled>
+                            <span class="input-lock">🔒</span>
+                        </div>
+                        <span class="field-hint">Email изменить нельзя</span>
+                    </div>
+                    <div class="field-group">
+                        <label class="form-label">Никнейм</label>
+                        <input type="text" name="username" class="form-input"
+                               value="{{ user.username or '' }}"
+                               placeholder="Как вас называть?">
+                        <span class="field-hint">Отображается в шапке сайта</span>
+                    </div>
+                    <button type="submit" class="btn-save">Сохранить изменения</button>
+                </form>
+            </div>
+
+            <div class="profile-card">
+                <div class="profile-card-header">
+                    <span class="profile-card-icon">🔗</span>
+                    <h2>Подключённые аккаунты</h2>
+                </div>
+                {% if google_enabled %}
+                    {% if user.google_id %}
+                    <div class="social-row social-connected">
+                        <div class="social-icon google-icon">G</div>
+                        <div class="social-info">
+                            <span class="social-name">Google</span>
+                            <span class="social-status">Подключён</span>
+                        </div>
+                        <span class="social-check">✓</span>
+                    </div>
+                    {% else %}
+                    <div class="social-row">
+                        <div class="social-icon google-icon">G</div>
+                        <div class="social-info">
+                            <span class="social-name">Google</span>
+                            <span class="social-status social-status-off">Не подключён</span>
+                        </div>
+                        <a href="/auth/google?link=1" class="btn-connect">Подключить</a>
+                    </div>
+                    {% endif %}
+                {% else %}
+                <div class="social-hint">
+                    <p>Задайте <code>GOOGLE_CLIENT_ID</code> и <code>GOOGLE_CLIENT_SECRET</code> для активации входа через Google.</p>
+                </div>
+                {% endif %}
+            </div>
+
+        </div>
+
+        <!-- Правая колонка -->
+        <div class="profile-col">
+
+            <div class="profile-card profile-stats-card">
+                <div class="profile-card-header">
+                    <span class="profile-card-icon">📊</span>
+                    <h2>Активность</h2>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-num">{{ cart_count }}</span>
+                        <span class="stat-desc">Товаров в корзине</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-num">—</span>
+                        <span class="stat-desc">Уведомлений</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="profile-card logout-card">
+                <div class="profile-card-header">
+                    <span class="profile-card-icon">🚪</span>
+                    <h2>Выход из аккаунта</h2>
+                </div>
+                <p class="danger-text">Вы выйдете из текущей сессии на этом устройстве.</p>
+                <a href="/logout" class="btn-logout">Выйти из аккаунта</a>
+            </div>
+
+
+        </div>
+    </div>
+
+</div>
+</div>
+{% endblock %}

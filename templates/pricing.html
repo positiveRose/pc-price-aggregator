@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Тарифы — PC Parts{% endblock %}
+
+{% block content %}
+<div class="pricing-page">
+    <div class="pricing-header">
+        <h1 class="pricing-title">Выберите тариф</h1>
+        <p class="pricing-subtitle">Отслеживайте цены на комплектующие и собирайте ПК своей мечты</p>
+    </div>
+
+    <div class="pricing-grid">
+
+        <div class="pricing-card">
+            <div class="pricing-card-top">
+                <span class="pricing-plan-name">Free</span>
+                <div class="pricing-price">
+                    <span class="pricing-amount">0</span>
+                    <span class="pricing-period">руб/мес</span>
+                </div>
+                <p class="pricing-desc">Для тех кто только начинает следить за ценами</p>
+            </div>
+            <ul class="pricing-features">
+                <li>✓ 3 магазина (Citilink, Regard, DNS)</li>
+                <li>✓ Поиск по всем категориям</li>
+                <li>✓ Корзина и подсчёт суммы</li>
+                <li>✓ Обновление цен раз в сутки</li>
+                <li class="feature-off">✗ Уведомления о снижении цен</li>
+                <li class="feature-off">✗ История цен 90 дней</li>
+                <li class="feature-off">✗ Конфигуратор сборки</li>
+            </ul>
+            <a href="{{ '/search' if user else '/register' }}" class="btn-pricing btn-pricing-outline">Начать бесплатно</a>
+        </div>
+
+        <div class="pricing-card pricing-card-featured">
+            <div class="pricing-badge-popular">Популярный</div>
+            <div class="pricing-card-top">
+                <span class="pricing-plan-name">Pro</span>
+                <div class="pricing-price">
+                    <span class="pricing-amount">299</span>
+                    <span class="pricing-period">руб/мес</span>
+                </div>
+                <p class="pricing-desc">Для тех кто серьёзно следит за ценами</p>
+            </div>
+            <ul class="pricing-features">
+                <li>✓ Все магазины включая Авито</li>
+                <li>✓ Поиск по всем категориям</li>
+                <li>✓ Корзина и подсчёт суммы</li>
+                <li>✓ Обновление цен каждый час</li>
+                <li>✓ Уведомления о снижении цен</li>
+                <li>✓ История цен 90 дней</li>
+                <li class="feature-off">✗ Конфигуратор сборки</li>
+            </ul>
+            <a href="{{ '/profile' if user else '/register' }}" class="btn-pricing btn-pricing-primary">Подключить Pro</a>
+        </div>
+
+        <div class="pricing-card">
+            <div class="pricing-card-top">
+                <span class="pricing-plan-name">Builder</span>
+                <div class="pricing-price">
+                    <span class="pricing-amount">599</span>
+                    <span class="pricing-period">руб/мес</span>
+                </div>
+                <p class="pricing-desc">Для сборщиков и энтузиастов ПК</p>
+            </div>
+            <ul class="pricing-features">
+                <li>✓ Всё из Pro</li>
+                <li>✓ Авито + б/у товары</li>
+                <li>✓ Конфигуратор сборки ПК</li>
+                <li>✓ Проверка совместимости</li>
+                <li>✓ Экспорт конфигурации</li>
+                <li>✓ Приоритетная поддержка</li>
+                <li>✓ API доступ</li>
+            </ul>
+            <a href="{{ '/profile' if user else '/register' }}" class="btn-pricing btn-pricing-outline">Подключить Builder</a>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

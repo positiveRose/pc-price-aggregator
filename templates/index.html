@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}PC Parts Aggregator — Сравнение цен{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <h1>Найди лучшую цену</h1>
+    <p>Сравнение цен на комплектующие ПК</p>
+
+    <div class="hero-search">
+        <form action="/search" method="get" class="search-form">
+            <input type="text" name="q" class="search-input"
+                   placeholder="Введи модель: RTX 5070, RX 9060 XT..."
+                   autofocus>
+            <button type="submit" class="btn btn-primary">Найти</button>
+        </form>
+    </div>
+</section>
+
+<div class="container">
+    <h2 class="page-title">Популярные запросы</h2>
+    <div class="filters" style="margin-bottom: 2rem;">
+        <a href="/search?q=RTX+5070" class="btn btn-outline">RTX 5070</a>
+        <a href="/search?q=RTX+5060" class="btn btn-outline">RTX 5060</a>
+        <a href="/search?q=RTX+5070+Ti" class="btn btn-outline">RTX 5070 Ti</a>
+        <a href="/search?q=RX+9060" class="btn btn-outline">RX 9060</a>
+        <a href="/search?q=RTX+4060" class="btn btn-outline">RTX 4060</a>
+        <a href="/search?q=RTX+3060" class="btn btn-outline">RTX 3060</a>
+        <a href="/search?q=GT+1030" class="btn btn-outline">GT 1030</a>
+    </div>
+</div>
+{% endblock %}

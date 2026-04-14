@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Корзина{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="page-title">Корзина</h1>
+
+    {% if cart %}
+    <div class="cart-table-wrap">
+        <table class="cart-table">
+            <thead>
+                <tr>
+                    <th>Товар</th>
+                    <th>Лучшая цена</th>
+                    <th>Магазин</th>
+                    <th>Кол-во</th>
+                    <th>Итого</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in cart %}
+                <tr>
+                    <td>
+                        <a href="/product/{{ item.slug }}">
+                            {{ item.name[:70] }}{% if item.name|length > 70 %}...{% endif %}
+                        </a>
+                    </td>
+                    <td class="price price-best">{{ "{:,}".format(item.best_price).replace(",", " ") }} р.</td>
+                    <td><span class="source-badge source-{{ item.best_source }}">{{ item.best_source }}</span></td>
+                    <td>
+                        <div class="qty-controls">
+                            <form method="post" action="/cart/qty" style="display:inline;">
+                                <input type="hidden" name="product_id" value="{{ item.product_id }}">
+                                <input type="hidden" name="action" value="dec">
+                                <button type="submit" class="qty-btn">−</button>
+                            </form>
+                            <span class="qty-value">{{ item.qty }}</span>
+                            <form method="post" action="/cart/qty" style="display:inline;">
+                                <input type="hidden" name="product_id" value="{{ item.product_id }}">
+                                <input type="hidden" name="action" value="inc">
+                                <button type="submit" class="qty-btn">+</button>
+                            </form>
+                        </div>
+                    </td>
+                    <td class="price">{{ "{:,}".format(item.subtotal).replace(",", " ") }} р.</td>
+                    <td>
+                        <form method="post" action="/cart/remove">
+                            <input type="hidden" name="product_id" value="{{ item.product_id }}">
+                            <button type="submit" class="btn-remove" title="Удалить">×</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="cart-footer">
+        <div class="cart-total">
+            Итого: <span class="cart-total-sum">{{ "{:,}".format(total).replace(",", " ") }} р.</span>
+        </div>
+        <div class="cart-actions">
+            <a href="/search" class="btn btn-outline">Продолжить покупки</a>
+            <form method="post" action="/cart/clear" style="display:inline;">
+                <button type="submit" class="btn btn-danger">Очистить корзину</button>
+            </form>
+        </div>
+    </div>
+
+    {% else %}
+    <div class="empty-state">
+        <h2>Корзина пуста</h2>
+        <p>Добавьте товары из <a href="/search">каталога</a></p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

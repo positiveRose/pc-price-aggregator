@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}{{ query or 'Все товары' }} — Поиск{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="page-title">
+        {% if query %}
+            Результаты: &laquo;{{ query }}&raquo;
+        {% else %}
+            Все товары
+        {% endif %}
+    </h1>
+    <p class="page-subtitle">Найдено: {{ results|length }} товаров</p>
+
+    <form action="/search" method="get" class="filters" id="filter-form">
+        <input type="hidden" name="q" value="{{ query or '' }}">
+
+        {% if filters.brands %}
+        <select name="brand" class="filter-select" onchange="this.form.submit()">
+            <option value="">Все бренды</option>
+            {% for b in filters.brands %}
+            <option value="{{ b }}" {% if brand == b %}selected{% endif %}>{{ b }}</option>
+            {% endfor %}
+        </select>
+        {% endif %}
+
+        {% if filters.models %}
+        <select name="chip" class="filter-select" onchange="this.form.submit()">
+            <option value="">Все GPU</option>
+            {% for m in filters.models %}
+            <option value="{{ m }}" {% if chip == m %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+        </select>
+        {% endif %}
+
+        {% if filters.sources %}
+        <select name="source" class="filter-select" onchange="this.form.submit()">
+            <option value="">Все магазины</option>
+            {% for s in filters.sources %}
+            <option value="{{ s }}" {% if source == s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+        </select>
+        {% endif %}
+
+        {% if brand or chip or source %}
+        <a href="/search?q={{ query or '' }}" class="btn btn-outline">Сбросить</a>
+        {% endif %}
+    </form>
+
+    {% if results %}
+    <div class="product-grid">
+        {% for group in results %}
+        <div class="product-card">
+            <div class="product-name">
+                <a href="/product/{{ group.product.slug or group.product.id }}">
+                    {{ group.product.name }}
+                </a>
+            </div>
+
+            {% if group.product.brand or group.product.model %}
+            <div class="product-attrs">
+                {% if group.product.brand %}
+                <span class="attr-tag">{{ group.product.brand }}</span>
+                {% endif %}
+                {% if group.product.model %}
+                <span class="attr-tag">{{ group.product.model }}</span>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            {% if group.offers %}
+            {% set best_price = group.offers[0].price %}
+            <div class="offers-row">
+                {% for offer in group.offers %}
+                <div class="offer-chip {% if group.offers|length > 1 and offer.price == best_price %}offer-chip-best{% endif %}">
+                    <span class="source-badge source-{{ offer.source }}">{{ offer.source }}</span>
+                    <span class="price {% if offer.price == best_price %}price-best{% else %}price-other{% endif %}">
+                        {{ "{:,}".format(offer.price).replace(",", " ") }} р.
+                    </span>
+                    <a href="{{ offer.url }}" target="_blank" rel="noopener" class="store-link">-></a>
+                </div>
+                {% endfor %}
+                <form method="post" action="/cart/add" style="display:inline;">
+                    <input type="hidden" name="product_id" value="{{ group.product.id }}">
+                    <input type="hidden" name="back" value="{{ request.url }}">
+                    <button type="submit" class="btn-cart-sm">+ В корзину</button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <h2>Ничего не найдено</h2>
+        <p>Попробуйте другой запрос</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

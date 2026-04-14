@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Регистрация{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <h1 class="page-title">Регистрация</h1>
+    {% if error %}
+    <div class="auth-error">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/register" class="auth-form">
+        <input type="email" name="email" placeholder="Email" required class="search-input">
+        <div class="password-wrap">
+            <input type="password" name="password" id="password-register" placeholder="Пароль (мин. 6 символов)" required class="search-input">
+            <button type="button" class="toggle-password" onclick="togglePassword('password-register', this)" title="Показать пароль">&#128065;</button>
+        </div>
+        <button type="submit" class="btn btn-primary">Зарегистрироваться</button>
+    </form>
+    <p class="auth-link">Уже есть аккаунт? <a href="/login">Войти</a></p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function togglePassword(id, btn) {
+    var input = document.getElementById(id);
+    if (input.type === 'password') {
+        input.type = 'text';
+        btn.style.opacity = '1';
+    } else {
+        input.type = 'password';
+        btn.style.opacity = '0.5';
+    }
+}
+</script>
+{% endblock %}

@@ -26,22 +26,31 @@ class BaseParser(ABC):
     WAIT_TIMEOUT = 15000   # Таймаут ожидания карточек (мс)
     MAX_PAGES = 20         # Максимум страниц (защита от бесконечного цикла)
     DELAY_BETWEEN_PAGES = 3  # Задержка между страницами (секунды)
+    BROWSER = "chromium"   # 'chromium' или 'firefox'
 
     def _create_browser(self, playwright):
         """Создаёт браузер и страницу со stealth."""
-        browser = playwright.chromium.launch(headless=True)
-        context = browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            locale="ru-RU",
-            user_agent=(
+        launcher = getattr(playwright, self.BROWSER)
+        browser = launcher.launch(headless=True)
+
+        context_opts = {
+            "viewport": {"width": 1920, "height": 1080},
+            "locale": "ru-RU",
+        }
+        if self.BROWSER == "chromium":
+            context_opts["user_agent"] = (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/131.0.0.0 Safari/537.36"
-            ),
-        )
-        stealth = Stealth()
+            )
+
+        context = browser.new_context(**context_opts)
         page = context.new_page()
-        stealth.apply_stealth_sync(page)
+
+        if self.BROWSER == "chromium":
+            stealth = Stealth()
+            stealth.apply_stealth_sync(page)
+
         return browser, page
 
     def _load_page(self, page, url):
@@ -79,10 +88,14 @@ class BaseParser(ABC):
 
                 # Загружаем остальные страницы
                 for page_num in range(2, total + 1):
-                    time.sleep(self.DELAY_BETWEEN_PAGES)
-                    url = self.get_page_url(page_num)
-                    html = self._load_page(page, url)
-                    all_html.append(html)
+                    try:
+                        time.sleep(self.DELAY_BETWEEN_PAGES)
+                        url = self.get_page_url(page_num)
+                        html = self._load_page(page, url)
+                        all_html.append(html)
+                    except Exception as e:
+                        print(f"[{self.SOURCE_NAME}] Ошибка на странице {page_num}: {e}")
+                        continue
             finally:
                 browser.close()
 

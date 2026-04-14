@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}{{ product.name }} — Цены{% endblock %}
+
+{% block content %}
+<div class="container product-detail">
+    <h1>{{ product.name }}</h1>
+
+    {% if product.brand or product.model %}
+    <div class="product-attrs" style="margin-bottom: 1.5rem;">
+        {% if product.brand %}
+        <span class="attr-tag">{{ product.brand }}</span>
+        {% endif %}
+        {% if product.model %}
+        <span class="attr-tag">{{ product.model }}</span>
+        {% endif %}
+        <span class="attr-tag">{{ product.category or 'GPU' }}</span>
+    </div>
+    {% endif %}
+
+    <div style="margin-bottom: 1.5rem;">
+        <form method="post" action="/cart/add">
+            <input type="hidden" name="product_id" value="{{ product.id }}">
+            <input type="hidden" name="back" value="/product/{{ product.slug or product.id }}">
+            <button type="submit" class="btn btn-cart">+ В корзину</button>
+        </form>
+    </div>
+
+    <div class="detail-section">
+        <h2>Предложения</h2>
+        {% if product.offers %}
+        <table class="offers-table">
+            <thead>
+                <tr>
+                    <th>Магазин</th>
+                    <th>Название</th>
+                    <th>Цена</th>
+                    <th>Обновлено</th>
+                    <th>Ссылка</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% set best_price = product.offers[0].price %}
+                {% for offer in product.offers %}
+                <tr>
+                    <td>
+                        <span class="source-badge source-{{ offer.source }}">{{ offer.source }}</span>
+                    </td>
+                    <td style="font-size: 0.85rem; color: var(--text-secondary);">
+                        {{ offer.product_name[:60] }}{% if offer.product_name|length > 60 %}...{% endif %}
+                    </td>
+                    <td>
+                        <span class="price {% if product.offers|length > 1 and offer.price == best_price %}price-best{% else %}price-other{% endif %}">
+                            {{ "{:,}".format(offer.price).replace(",", " ") }} руб.
+                        </span>
+                    </td>
+                    <td style="color: var(--text-muted); font-size: 0.85rem;">
+                        {{ offer.updated_at[:10] }}
+                    </td>
+                    <td>
+                        <a href="{{ offer.url }}" target="_blank" rel="noopener" class="store-link">
+                            Перейти &rarr;
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: var(--text-muted);">Нет предложений</p>
+        {% endif %}
+    </div>
+
+    <div class="detail-section">
+        <h2>История цен</h2>
+        <div class="chart-container">
+            <canvas id="priceChart"></canvas>
+        </div>
+        <p id="chart-empty" style="display:none; color: var(--text-muted); text-align: center; padding: 2rem;">
+            Недостаточно данных для графика
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    fetch('/api/price-history/{{ product.id }}')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.length || data.length < 2) {
+                document.getElementById('priceChart').style.display = 'none';
+                document.getElementById('chart-empty').style.display = 'block';
+                return;
+            }
+
+            // Группируем по source
+            const sources = {};
+            data.forEach(d => {
+                if (!sources[d.source]) sources[d.source] = [];
+                sources[d.source].push({ x: d.recorded_at, y: d.price });
+            });
+
+            const colors = {
+                citilink: { line: '#4ecb71', bg: 'rgba(78,203,113,0.1)' },
+                regard:   { line: '#e8a040', bg: 'rgba(232,160,64,0.1)' },
+                dns:      { line: '#40a0e8', bg: 'rgba(64,160,232,0.1)' },
+            };
+
+            const datasets = Object.entries(sources).map(([src, points]) => ({
+                label: src.toUpperCase(),
+                data: points,
+                borderColor: (colors[src] || { line: '#9b59b6' }).line,
+                backgroundColor: (colors[src] || { bg: 'rgba(155,89,182,0.1)' }).bg,
+                fill: true,
+                tension: 0.3,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+            }));
+
+            new Chart(document.getElementById('priceChart'), {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'category',
+                            ticks: { color: '#6b5f80' },
+                            grid: { color: 'rgba(53,37,80,0.5)' },
+                        },
+                        y: {
+                            ticks: {
+                                color: '#6b5f80',
+                                callback: v => v.toLocaleString('ru-RU') + ' р.'
+                            },
+                            grid: { color: 'rgba(53,37,80,0.5)' },
+                        },
+                    },
+                    plugins: {
+                        legend: {
+                            labels: { color: '#ece4f4' }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString('ru-RU') + ' руб.'
+                            }
+                        }
+                    }
+                }
+            });
+        });
+</script>
+{% endblock %}

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}PC Parts Aggregator{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/style.css?v=10">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<nav class="navbar">
+    <a href="/" class="navbar-brand">PC Parts</a>
+    <div class="navbar-search">
+        <form action="/search" method="get" class="search-form">
+            <input type="text" name="q" class="search-input"
+                   placeholder="RTX 5070, RX 9060, GT 1030..."
+                   value="{{ query | default('', true) }}">
+            <button type="submit" class="btn btn-primary">Найти</button>
+        </form>
+    </div>
+    <div class="navbar-right">
+        <a href="/cart" class="cart-icon" title="Корзина">
+            🛒
+            {% if cart_count > 0 %}
+            <span class="cart-badge">{{ cart_count }}</span>
+            {% endif %}
+        </a>
+        {% if user %}
+        <a href="/profile" class="nav-profile">
+            <span class="nav-avatar">{{ (user.username or user.email)[0] | upper }}</span>
+            <span class="nav-username">{{ user.username or user.email.split('@')[0] }}</span>
+        </a>
+        {% else %}
+            <a href="/login" class="btn btn-outline btn-sm">Войти</a>
+            <a href="/register" class="btn btn-primary btn-sm">Регистрация</a>
+        {% endif %}
+    </div>
+</nav>
+
+<div class="page-layout">
+    <aside class="sidebar">
+        <nav class="sidebar-nav">
+            <h3 class="sidebar-heading">Меню</h3>
+            <a href="/" class="sidebar-link">Главная</a>
+            <a href="/search" class="sidebar-link">Все товары</a>
+            <a href="/cart" class="sidebar-link">Корзина {% if cart_count > 0 %}<span class="cart-badge-sm">{{ cart_count }}</span>{% endif %}</a>
+        </nav>
+
+        <a href="/pricing" class="sidebar-link">Тарифы</a>
+    </aside>
+
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+</div>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

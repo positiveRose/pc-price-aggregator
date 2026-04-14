@@ -24,7 +24,7 @@ class RegardParser(BaseParser):
 
     def parse_products(self, html):
         soup = BeautifulSoup(html, "lxml")
-        cards = soup.find_all("div", class_=re.compile(r"^Card_wrap"))
+        cards = soup.select(self.CARD_SELECTOR)
         products = []
 
         for card in cards:
