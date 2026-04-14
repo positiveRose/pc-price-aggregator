@@ -70,8 +70,9 @@ class WbParser(BaseParser):
                 print(f"[{self.SOURCE_NAME}] Страница {page_num}: {url}")
 
                 try:
-                    page.goto(url, wait_until="networkidle", timeout=60000)
-                    time.sleep(3)
+                    page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                    # WB делает фоновые запросы постоянно → networkidle ненадёжен
+                    time.sleep(6)
                 except Exception as e:
                     print(f"[{self.SOURCE_NAME}] Ошибка загрузки стр. {page_num}: {e}")
                     break
@@ -85,7 +86,7 @@ class WbParser(BaseParser):
                 print(f"[{self.SOURCE_NAME}] Стр. {page_num}: {len(parsed)} товаров")
                 all_products.extend(parsed)
 
-                time.sleep(self.DELAY_BETWEEN_PAGES - 3)
+                time.sleep(max(1, self.DELAY_BETWEEN_PAGES - 6))
 
             browser.close()
 

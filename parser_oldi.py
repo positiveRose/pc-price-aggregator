@@ -62,16 +62,19 @@ class OldiParser(BaseParser):
         return products
 
     def _find_price_near(self, link):
-        """Ищет цену в ближайших родительских элементах (до 6 уровней вверх)."""
+        """Ищет цену в ближайших родительских элементах (до 8 уровней вверх)."""
         el = link
-        for _ in range(6):
+        for _ in range(8):
             el = el.parent
             if el is None:
                 break
-            # Цена в <strong> — формат "14 700 c" или "14 700 ₽"
-            strong = el.find("strong")
-            if strong:
-                price = self._parse_price_text(strong.get_text())
+            # Пробуем тэги и классы с ценой
+            for candidate in el.select(
+                "strong, b, "
+                "[class*='price'], [class*='cost'], [class*='sum'], "
+                "[class*='Price'], [class*='Cost']"
+            ):
+                price = self._parse_price_text(candidate.get_text())
                 if price:
                     return price
         return None

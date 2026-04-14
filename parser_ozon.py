@@ -77,8 +77,9 @@ class OzonParser(BaseParser):
                 print(f"[{self.SOURCE_NAME}] Страница {page_num}: {url}")
 
                 try:
-                    pg.goto(url, wait_until="networkidle", timeout=60000)
-                    time.sleep(4)
+                    pg.goto(url, wait_until="domcontentloaded", timeout=60000)
+                    # Ozon — React SPA, ждём завершения XHR-запросов
+                    time.sleep(7)
                 except Exception as e:
                     print(f"[{self.SOURCE_NAME}] Ошибка загрузки стр. {page_num}: {e}")
                     break
@@ -90,7 +91,7 @@ class OzonParser(BaseParser):
 
                 print(f"[{self.SOURCE_NAME}] Стр. {page_num}: {len(snapshot)} товаров")
                 all_products.extend(snapshot)
-                time.sleep(self.DELAY_BETWEEN_PAGES - 4)
+                time.sleep(max(1, self.DELAY_BETWEEN_PAGES - 7))
 
             browser.close()
 

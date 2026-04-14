@@ -100,7 +100,13 @@ class MvideoParser(BaseParser):
 
     def _fetch_all_ids(self, category_id):
         s = _get_session()
+        # Посещаем страницу категории — сайт может требовать cookies с неё
+        try:
+            s.get(self.CATALOG_URL, timeout=20)
+        except Exception:
+            pass
         s.headers.update({"Referer": self.CATALOG_URL})
+
         url = "https://www.mvideo.ru/bff/products/v2/search"
         all_ids = []
         offset = 0
@@ -120,16 +126,31 @@ class MvideoParser(BaseParser):
             data = resp.json()
 
             body = data.get("body", data)
-            pids = body.get("products") or body.get("productIds") or []
+            pids = (body.get("products")
+                    or body.get("productIds")
+                    or body.get("items")
+                    or [])
+
             if total is None:
-                total = int(body.get("total") or body.get("totalItems") or 0)
+                for field in ("total", "totalItems", "totalCount",
+                              "total_count", "count", "size"):
+                    val = body.get(field)
+                    if val is not None:
+                        total = int(val)
+                        break
+                else:
+                    total = 0
                 print(f"[{self.SOURCE_NAME}] Всего товаров: {total}")
+
+            # Прекращаем только при пустом ответе
+            if not pids:
+                break
 
             all_ids.extend(str(p) for p in pids)
             pages += 1
             offset += self.PAGE_LIMIT
 
-            if not pids or offset >= total or pages >= self.MAX_PAGES:
+            if (total > 0 and offset >= total) or pages >= self.MAX_PAGES:
                 break
             time.sleep(self.DELAY_BETWEEN_PAGES)
 

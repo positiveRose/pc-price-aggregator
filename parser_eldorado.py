@@ -96,32 +96,35 @@ class EldoradoParser(BaseParser):
         return products
 
     def _find_products_map(self, obj, depth=0):
-        """Рекурсивно ищет словарь {productId_str: {id, name, price, ...}}."""
-        if depth > 12:
+        """Рекурсивно ищет словарь {productId_str: {id, name, price, ...}}.
+        Собирает всех кандидатов и возвращает наибольшего."""
+        candidates = []
+        self._collect_map_candidates(obj, depth, candidates)
+        if not candidates:
             return None
+        return max(candidates, key=lambda d: len(d))
+
+    def _collect_map_candidates(self, obj, depth, candidates):
+        """Рекурсивно собирает все словари {digit_key: product_dict}."""
+        if depth > 12:
+            return
         if isinstance(obj, dict):
-            # Проверяем: ключи — числа, значения — словари с productId и price
-            if len(obj) >= 2:
-                sample_keys = list(obj.keys())[:5]
+            if len(obj) >= 1:
+                sample_keys = list(obj.keys())[:10]
                 sample_vals = [obj[k] for k in sample_keys]
+                # Ключи — числа, значения — словари с хоть каким-то полем товара
                 if (all(str(k).isdigit() for k in sample_keys) and
-                        all(isinstance(v, dict) and
-                            ("productId" in v or "id" in v) and
-                            "price" in v for v in sample_vals)):
-                    return obj
-
+                        all(isinstance(v, dict) for v in sample_vals) and
+                        any(("productId" in v or "id" in v or
+                             "name" in v or "title" in v)
+                            for v in sample_vals)):
+                    candidates.append(obj)
+                    return  # не спускаемся внутрь найденного словаря
             for v in obj.values():
-                result = self._find_products_map(v, depth + 1)
-                if result:
-                    return result
-
+                self._collect_map_candidates(v, depth + 1, candidates)
         elif isinstance(obj, list):
             for item in obj:
-                result = self._find_products_map(item, depth + 1)
-                if result:
-                    return result
-
-        return None
+                self._collect_map_candidates(item, depth + 1, candidates)
 
     def _parse_html_cards(self, html):
         """Fallback: HTML-парсинг карточек."""
