@@ -1,5 +1,5 @@
 """
-Итерация 5: Агрегатор цен — Ситилинк + Регард + DNS + OLDI + e2e4 + МВидео + Эльдорадо → SQLite → веб-интерфейс.
+Итерация 6: Агрегатор цен — Ситилинк + Регард + DNS + OLDI + e2e4 + МВидео + Эльдорадо + NIX + WB + Ozon → SQLite → веб-интерфейс.
 
 Запуск:
     python main.py                     — парсить все магазины
@@ -9,6 +9,9 @@
     python main.py e2e4                — все категории e2e4
     python main.py mvideo              — все категории МВидео
     python main.py eldorado            — все категории Эльдорадо
+    python main.py nix                 — все категории NIX.ru
+    python main.py wb                  — все категории Wildberries
+    python main.py ozon                — все категории Ozon
     python main.py citilink-all        — все категории Ситилинк
     python main.py regard-all          — все категории Регард
     python main.py --show              — показать сохранённые данные без парсинга
@@ -28,9 +31,12 @@ from parser_dns import DnsParser
 from parser_e2e4_categories import CATEGORY_PARSERS as E2E4_PARSERS
 from parser_eldorado_categories import CATEGORY_PARSERS as ELDORADO_PARSERS
 from parser_mvideo_categories import CATEGORY_PARSERS as MVIDEO_PARSERS
+from parser_nix_categories import CATEGORY_PARSERS as NIX_PARSERS
 from parser_oldi_categories import CATEGORY_PARSERS as OLDI_PARSERS
+from parser_ozon_categories import CATEGORY_PARSERS as OZON_PARSERS
 from parser_regard import RegardParser
 from parser_regard_categories import CATEGORY_PARSERS as REGARD_PARSERS
+from parser_wb_categories import CATEGORY_PARSERS as WB_PARSERS
 
 
 def filter_by_query(items, query):
@@ -53,18 +59,21 @@ def filter_by_query(items, query):
 # Все доступные парсеры
 # citilink          — только GPU (обратная совместимость)
 # citilink-gpu/cpu/mb/ram/ssd/hdd/psu/case/cooler — конкретная категория
-# citilink-all      — все категории Ситилинк сразу
-# oldi-all / e2e4-all / mvideo-all / eldorado-all / key-all — аналогично
+# citilink-all / regard-all / oldi-all / e2e4-all / mvideo-all /
+# eldorado-all / nix-all / wb-all / ozon-all — все категории магазина
 PARSERS = {
     "citilink": CitilinkParser,
-    "regard": RegardParser,
-    "dns": DnsParser,
+    "regard":   RegardParser,
+    "dns":      DnsParser,
     **CITILINK_PARSERS,
     **REGARD_PARSERS,
     **OLDI_PARSERS,
     **E2E4_PARSERS,
     **MVIDEO_PARSERS,
     **ELDORADO_PARSERS,
+    **NIX_PARSERS,
+    **WB_PARSERS,
+    **OZON_PARSERS,
 }
 
 # Алиасы для запуска всех категорий конкретного магазина
@@ -75,6 +84,9 @@ _ALL_ALIASES = {
     "e2e4-all":     list(E2E4_PARSERS.keys()),
     "mvideo-all":   list(MVIDEO_PARSERS.keys()),
     "eldorado-all": list(ELDORADO_PARSERS.keys()),
+    "nix-all":      list(NIX_PARSERS.keys()),
+    "wb-all":       list(WB_PARSERS.keys()),
+    "ozon-all":     list(OZON_PARSERS.keys()),
 }
 
 
@@ -205,7 +217,7 @@ def main():
             continue
         elif (arg.lower() in PARSERS
               or arg.lower() in _ALL_ALIASES
-              or arg.lower() in ("oldi", "e2e4", "mvideo", "eldorado")):
+              or arg.lower() in ("oldi", "e2e4", "mvideo", "eldorado", "nix", "wb", "ozon")):
             sources.append(arg.lower())
         else:
             query_parts.append(arg)
@@ -223,6 +235,9 @@ def main():
         "e2e4":     list(E2E4_PARSERS.keys()),
         "mvideo":   list(MVIDEO_PARSERS.keys()),
         "eldorado": list(ELDORADO_PARSERS.keys()),
+        "nix":      list(NIX_PARSERS.keys()),
+        "wb":       list(WB_PARSERS.keys()),
+        "ozon":     list(OZON_PARSERS.keys()),
     }
     for shop, keys in _SHOP_TO_PARSERS.items():
         if shop in sources:
@@ -233,7 +248,7 @@ def main():
     search_query = " ".join(query_parts) if query_parts else None
 
     # Запускаем парсеры
-    print("Агрегатор цен — Итерация 5")
+    print("Агрегатор цен — Итерация 6")
     print("-" * 40)
     all_products = run_parsers(sources, max_pages=max_pages)
 
