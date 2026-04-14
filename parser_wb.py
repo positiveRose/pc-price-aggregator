@@ -24,7 +24,7 @@ class WbParser(BaseParser):
     CARD_SELECTOR = ""
     WAIT_TIMEOUT = 30000
     DELAY_BETWEEN_PAGES = 6
-    MAX_PAGES = 15
+    MAX_PAGES = 50
 
     # ------------------------------------------------------------------ #
     # Точка входа                                                         #

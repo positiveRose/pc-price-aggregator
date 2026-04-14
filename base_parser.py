@@ -24,7 +24,7 @@ class BaseParser(ABC):
     BASE_URL = ""          # Базовый URL сайта
     CARD_SELECTOR = ""     # CSS-селектор карточки товара
     WAIT_TIMEOUT = 15000   # Таймаут ожидания карточек (мс)
-    MAX_PAGES = 20         # Максимум страниц (защита от бесконечного цикла)
+    MAX_PAGES = 50         # Максимум страниц (защита от бесконечного цикла)
     DELAY_BETWEEN_PAGES = 3  # Задержка между страницами (секунды)
     BROWSER = "chromium"   # 'chromium' или 'firefox'
 
