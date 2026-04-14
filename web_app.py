@@ -46,7 +46,7 @@ db.init_db()
 def render(request, name, context=None):
     ctx = context or {}
     ctx["user"] = get_current_user(request)
-    ctx["cart_count"] = sum(i["qty"] for i in request.session.get("cart", []))
+    ctx["cart_count"] = sum(i.get("qty", 0) for i in request.session.get("cart", []))
     ctx["google_enabled"] = bool(GOOGLE_CLIENT_ID)
     return templates.TemplateResponse(request=request, name=name, context=ctx)
 

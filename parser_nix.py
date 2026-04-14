@@ -134,11 +134,15 @@ class NixParser(BaseParser):
             m = re.search(r"page=(\d+)", a.get("href", ""))
             if m:
                 max_page = max(max_page, int(m.group(1)))
-        # Числа в ссылках пагинации
-        for a in soup.select("a"):
-            t = a.get_text(strip=True)
-            if t.isdigit() and 1 < int(t) <= 200:
-                max_page = max(max_page, int(t))
+        # Числа только в блоке пагинации (не ловим числа из карточек товаров)
+        if max_page == 1:
+            for a in soup.select(
+                "[class*='paginat'] a, [class*='pager'] a, "
+                "[class*='Paginat'] a, [class*='pages'] a"
+            ):
+                t = a.get_text(strip=True)
+                if t.isdigit() and 1 < int(t) <= 200:
+                    max_page = max(max_page, int(t))
         return max_page
 
     def get_page_url(self, page_num):

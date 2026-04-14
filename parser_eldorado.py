@@ -109,7 +109,7 @@ class EldoradoParser(BaseParser):
         if depth > 12:
             return
         if isinstance(obj, dict):
-            if len(obj) >= 1:
+            if obj:
                 sample_keys = list(obj.keys())[:10]
                 sample_vals = [obj[k] for k in sample_keys]
                 # Ключи — числа, значения — словари с хоть каким-то полем товара

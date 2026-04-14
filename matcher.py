@@ -83,14 +83,21 @@ def extract_memory(name):
 # ==================== МАТЧИНГ ====================
 
 def run_matching():
-    """Запускает матчинг товаров между магазинами."""
+    """Запускает матчинг товаров между магазинами.
+
+    Tier 1 — код модели из скобок Регарда (citilink ↔ regard).
+    Tier 2 — brand + chip + memory по всем магазинам.
+    Tier 3 — chip + memory (без бренда) по всем магазинам — ловит
+             случаи когда бренд распознан по-разному.
+    """
     conn = db.get_connection()
     try:
-        # Загружаем все товары с источниками
+        # Загружаем все товары с источниками (по одному offer на продукт)
         rows = conn.execute("""
             SELECT p.id, p.name, o.source
             FROM products p
             JOIN offers o ON o.product_id = p.id
+            GROUP BY p.id
         """).fetchall()
 
         products = [dict(r) for r in rows]
@@ -98,14 +105,7 @@ def run_matching():
         # Очищаем старые результаты матчинга
         conn.execute("UPDATE products SET canonical_id = NULL")
 
-        # Разделяем по источникам
-        citilink = [p for p in products if p["source"] == "citilink"]
-        regard = [p for p in products if p["source"] == "regard"]
-
-        print(f"Ситилинк: {len(citilink)} товаров")
-        print(f"Регард: {len(regard)} товаров")
-
-        # Сначала заполняем атрибуты для всех товаров
+        # Заполняем атрибуты для всех товаров
         for p in products:
             brand = extract_brand(p["name"])
             chip = extract_gpu_chip(p["name"])
@@ -123,11 +123,17 @@ def run_matching():
                     params,
                 )
 
-        # Tier 1: код модели из скобок Регарда
+        # -------- Tier 1: код модели из скобок Регарда (citilink ↔ regard) --------
+        citilink = [p for p in products if p["source"] == "citilink"]
+        regard   = [p for p in products if p["source"] == "regard"]
+
+        print(f"Ситилинк: {len(citilink)} | Регард: {len(regard)}")
+        print(f"Всего источников: {len(set(p['source'] for p in products))}")
+
+        matched_ids = set()   # id товаров, уже включённых в группу (не canonical)
         matched_tier1 = 0
         matched_tier2 = 0
-        matched_citilink_ids = set()
-        matched_regard_ids = set()
+        matched_tier3 = 0
 
         regard_codes = {}
         for r in regard:
@@ -138,60 +144,95 @@ def run_matching():
         for c in citilink:
             c_name_upper = c["name"].upper()
             for r_id, (code, r) in regard_codes.items():
-                if r_id in matched_regard_ids:
+                if r_id in matched_ids:
                     continue
                 if code.upper() in c_name_upper:
-                    # Совпадение! Регард → canonical = Ситилинк (у кого id меньше)
                     canonical_id = min(c["id"], r["id"])
-                    other_id = max(c["id"], r["id"])
+                    other_id    = max(c["id"], r["id"])
                     conn.execute(
                         "UPDATE products SET canonical_id = ? WHERE id = ?",
                         (canonical_id, other_id),
                     )
-                    matched_citilink_ids.add(c["id"])
-                    matched_regard_ids.add(r_id)
+                    matched_ids.add(other_id)
                     matched_tier1 += 1
                     break
 
-        # Tier 2: brand + chip + memory для оставшихся
-        unmatched_citilink = [c for c in citilink if c["id"] not in matched_citilink_ids]
-        unmatched_regard = [r for r in regard if r["id"] not in matched_regard_ids]
+        # -------- Tier 2: brand + chip + memory — все магазины --------
+        # Группируем по сигнатуре: (BRAND_UPPER, CHIP_UPPER, memory_gb)
+        sig_map: dict = {}
+        for p in products:
+            brand = extract_brand(p["name"])
+            chip  = extract_gpu_chip(p["name"])
+            mem   = extract_memory(p["name"])
+            if brand and chip and mem:
+                sig = (brand.upper(), chip.upper(), int(mem))
+                sig_map.setdefault(sig, []).append(p)
 
-        for c in unmatched_citilink:
-            c_brand = extract_brand(c["name"])
-            c_chip = extract_gpu_chip(c["name"])
-            c_mem = extract_memory(c["name"])
-            if not (c_brand and c_chip):
-                continue
+        for sig, group in sig_map.items():
+            # Берём только товары из разных источников, ещё не сматченных
+            by_source: dict = {}
+            for p in group:
+                if p["id"] not in matched_ids:
+                    by_source.setdefault(p["source"], []).append(p)
 
-            for r in unmatched_regard:
-                if r["id"] in matched_regard_ids:
-                    continue
-                r_brand = extract_brand(r["name"])
-                r_chip = extract_gpu_chip(r["name"])
-                r_mem = extract_memory(r["name"])
+            if len(by_source) < 2:
+                continue  # один магазин — нечего объединять
 
-                if c_brand == r_brand and c_chip == r_chip and c_mem and c_mem == r_mem:
-                    canonical_id = min(c["id"], r["id"])
-                    other_id = max(c["id"], r["id"])
+            # Выбираем canonical (наименьший id из первых представителей каждого источника)
+            representatives = [prods[0] for prods in by_source.values()]
+            canonical_id = min(p["id"] for p in representatives)
+
+            for p in representatives:
+                if p["id"] != canonical_id:
                     conn.execute(
                         "UPDATE products SET canonical_id = ? WHERE id = ?",
-                        (canonical_id, other_id),
+                        (canonical_id, p["id"]),
                     )
-                    matched_regard_ids.add(r["id"])
+                    matched_ids.add(p["id"])
                     matched_tier2 += 1
-                    break
+
+        # -------- Tier 3: chip + memory (без бренда) — подбираем оставшихся --------
+        sig_map2: dict = {}
+        for p in products:
+            if p["id"] in matched_ids:
+                continue
+            chip = extract_gpu_chip(p["name"])
+            mem  = extract_memory(p["name"])
+            if chip and mem:
+                sig = (chip.upper(), int(mem))
+                sig_map2.setdefault(sig, []).append(p)
+
+        for sig, group in sig_map2.items():
+            by_source2: dict = {}
+            for p in group:
+                if p["id"] not in matched_ids:
+                    by_source2.setdefault(p["source"], []).append(p)
+
+            if len(by_source2) < 2:
+                continue
+
+            representatives = [prods[0] for prods in by_source2.values()]
+            canonical_id = min(p["id"] for p in representatives)
+
+            for p in representatives:
+                if p["id"] != canonical_id:
+                    conn.execute(
+                        "UPDATE products SET canonical_id = ? WHERE id = ?",
+                        (canonical_id, p["id"]),
+                    )
+                    matched_ids.add(p["id"])
+                    matched_tier3 += 1
 
         conn.commit()
 
+        total = matched_tier1 + matched_tier2 + matched_tier3
         print(f"\nРезультаты матчинга:")
-        print(f"  Tier 1 (код модели): {matched_tier1} совпадений")
-        print(f"  Tier 2 (атрибуты):   {matched_tier2} совпадений")
-        print(f"  Итого:               {matched_tier1 + matched_tier2} совпадений")
-        print(f"  Без пары (Ситилинк): {len(citilink) - matched_tier1 - matched_tier2}")
-        print(f"  Без пары (Регард):   {len(regard) - matched_tier1 - matched_tier2}")
+        print(f"  Tier 1 (код Регарда):       {matched_tier1} совпадений")
+        print(f"  Tier 2 (brand+chip+memory): {matched_tier2} совпадений")
+        print(f"  Tier 3 (chip+memory):       {matched_tier3} совпадений")
+        print(f"  Итого:                      {total} совпадений")
 
-        return matched_tier1 + matched_tier2
+        return total
     finally:
         conn.close()
 

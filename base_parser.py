@@ -83,7 +83,7 @@ class BaseParser(ABC):
 
                 # Определяем количество страниц
                 total = self.get_total_pages(html)
-                total = min(total, self.MAX_PAGES)
+                total = max(1, min(total, self.MAX_PAGES))
                 print(f"[{self.SOURCE_NAME}] Страниц: {total}")
 
                 # Загружаем остальные страницы
