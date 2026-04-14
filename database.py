@@ -552,24 +552,3 @@ def create_user_google(email, google_id):
         conn.close()
 
 
-def update_product_attributes(product_id, brand=None, model=None, canonical_id=None):
-    """Обновляет атрибуты товара (используется матчером)."""
-    conn = get_connection()
-    try:
-        fields = []
-        params = []
-        if brand is not None:
-            fields.append("brand = ?")
-            params.append(brand)
-        if model is not None:
-            fields.append("model = ?")
-            params.append(model)
-        if canonical_id is not None:
-            fields.append("canonical_id = ?")
-            params.append(canonical_id)
-        if fields:
-            params.append(product_id)
-            conn.execute(f"UPDATE products SET {', '.join(fields)} WHERE id = ?", params)
-            conn.commit()
-    finally:
-        conn.close()

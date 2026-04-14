@@ -24,11 +24,6 @@ def _make_parser(category, url):
         CATALOG_URL = url
         _CATEGORY = category
 
-        def _collect_products(self, raw_products):
-            for p in raw_products:
-                p["category"] = self._CATEGORY
-            return raw_products
-
         def run(self):
             products = super().run()
             for p in products:
