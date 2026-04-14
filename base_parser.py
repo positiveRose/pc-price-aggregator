@@ -65,15 +65,18 @@ class BaseParser(ABC):
         print(f"[{self.SOURCE_NAME}] Загружаю: {url}")
         page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-        try:
-            page.wait_for_selector(
-                self.CARD_SELECTOR,
-                timeout=self.WAIT_TIMEOUT,
-            )
-            time.sleep(2)
-        except Exception:
-            print(f"[{self.SOURCE_NAME}] Карточки не появились, жду ещё...")
-            time.sleep(10)
+        if self.CARD_SELECTOR:
+            try:
+                page.wait_for_selector(
+                    self.CARD_SELECTOR,
+                    timeout=self.WAIT_TIMEOUT,
+                )
+                time.sleep(2)
+            except Exception:
+                print(f"[{self.SOURCE_NAME}] Карточки не появились, жду ещё...")
+                time.sleep(10)
+        else:
+            time.sleep(3)
 
         return page.content()
 

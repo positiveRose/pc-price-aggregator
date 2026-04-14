@@ -28,7 +28,7 @@ class EldoradoParser(BaseParser):
     SOURCE_NAME = "eldorado"
     CATALOG_URL = "https://www.eldorado.ru/c/videokarty/"
     BASE_URL = "https://www.eldorado.ru"
-    CARD_SELECTOR = "[class*='Product'], [class*='product'], [data-testid*='product']"
+    CARD_SELECTOR = ""  # данные в __NEXT_DATA__ (SSR), ждать карточки не нужно
     WAIT_TIMEOUT = 25000
     DELAY_BETWEEN_PAGES = 5
 
