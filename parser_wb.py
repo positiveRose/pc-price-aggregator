@@ -1,141 +1,117 @@
 """
 Парсер Wildberries (wildberries.ru) — комплектующие ПК.
 
-Playwright + перехват ответов catalog.wb.ru/catalog/.../v2/catalog.
-Страница 1 перехватывается при первой загрузке.
-Страницы 2+ — навигация на {url}?page=N, каждый раз перехватываем тот же callback.
-
-Структура JSON:
-  data.products[].{id, name, brand, salePriceU / priceU (копейки), sizes[].price.product}
+Использует поисковый API search.wb.ru напрямую (без Playwright).
+Цена берётся из sizes[0].price.product (копейки → рубли).
 """
 
 import time
 
-from playwright.sync_api import sync_playwright
-from playwright_stealth import Stealth
+import requests
 
 from base_parser import BaseParser
+
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "ru-RU,ru;q=0.9",
+    "Origin": "https://www.wildberries.ru",
+    "Referer": "https://www.wildberries.ru/",
+}
+
+_SEARCH_URL = (
+    "https://search.wb.ru/exactmatch/ru/common/v5/search"
+    "?query={query}&resultset=catalog&limit=100&page={page}"
+    "&appType=1&curr=rub&dest=-1257786"
+)
 
 
 class WbParser(BaseParser):
     SOURCE_NAME = "wb"
-    CATALOG_URL = "https://www.wildberries.ru/catalog/elektronika/noutbuki-i-kompyutery/komplektuyushchie-dlya-pk/videokarty"
+    SEARCH_QUERY = "видеокарта"   # переопределяется в категорийных парсерах
+    CATALOG_URL = ""              # не используется, только для совместимости
     BASE_URL = "https://www.wildberries.ru"
     CARD_SELECTOR = ""
     WAIT_TIMEOUT = 30000
-    DELAY_BETWEEN_PAGES = 6
+    DELAY_BETWEEN_PAGES = 5
     MAX_PAGES = 50
 
-    # ------------------------------------------------------------------ #
-    # Точка входа                                                         #
-    # ------------------------------------------------------------------ #
-
     def run(self):
+        session = requests.Session()
+        session.headers.update(_HEADERS)
+
         all_products = []
+        seen_ids = set()
 
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                viewport={"width": 1920, "height": 1080},
-                locale="ru-RU",
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/131.0.0.0 Safari/537.36"
-                ),
+        for page_num in range(1, self.MAX_PAGES + 1):
+            url = _SEARCH_URL.format(
+                query=requests.utils.quote(self.SEARCH_QUERY),
+                page=page_num,
             )
-            page = context.new_page()
-            Stealth().apply_stealth_sync(page)
+            print(f"[{self.SOURCE_NAME}] Страница {page_num}: {self.SEARCH_QUERY!r}")
 
-            buffer = []
-
-            def on_response(response):
-                if (
-                    "catalog.wb.ru" in response.url
-                    and "catalog" in response.url
-                    and response.status == 200
-                ):
-                    try:
-                        data = response.json()
-                        items = data.get("data", {}).get("products", [])
-                        buffer.extend(items)
-                    except Exception:
-                        pass
-
-            page.on("response", on_response)
-
-            for page_num in range(1, self.MAX_PAGES + 1):
-                buffer.clear()
-                url = self.CATALOG_URL if page_num == 1 else f"{self.CATALOG_URL}?page={page_num}"
-                print(f"[{self.SOURCE_NAME}] Страница {page_num}: {url}")
-
-                try:
-                    page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                    # WB делает фоновые запросы постоянно → networkidle ненадёжен
-                    time.sleep(6)
-                except Exception as e:
-                    print(f"[{self.SOURCE_NAME}] Ошибка загрузки стр. {page_num}: {e}")
+            try:
+                r = session.get(url, timeout=20)
+                # Retry на 429 с нарастающей задержкой
+                for wait in (15, 30):
+                    if r.status_code != 429:
+                        break
+                    print(f"[{self.SOURCE_NAME}] Rate limit — ждём {wait} сек")
+                    time.sleep(wait)
+                    r = session.get(url, timeout=20)
+                if r.status_code != 200 or not r.text:
+                    print(f"[{self.SOURCE_NAME}] Стр. {page_num}: статус {r.status_code} — стоп")
                     break
 
-                snapshot = list(buffer)
-                if not snapshot:
-                    print(f"[{self.SOURCE_NAME}] Стр. {page_num}: API не ответил — стоп")
-                    break
+                data = r.json()
+            except Exception as e:
+                print(f"[{self.SOURCE_NAME}] Стр. {page_num}: {e}")
+                break
 
-                parsed = self._parse_items(snapshot)
-                print(f"[{self.SOURCE_NAME}] Стр. {page_num}: {len(parsed)} товаров")
-                all_products.extend(parsed)
+            products_raw = data.get("products") or []
+            if not products_raw:
+                print(f"[{self.SOURCE_NAME}] Стр. {page_num}: товаров нет — стоп")
+                break
 
-                time.sleep(max(1, self.DELAY_BETWEEN_PAGES - 6))
+            parsed = self._parse_items(products_raw, seen_ids)
+            print(f"[{self.SOURCE_NAME}] Стр. {page_num}: {len(parsed)} товаров")
+            all_products.extend(parsed)
 
-            browser.close()
+            time.sleep(self.DELAY_BETWEEN_PAGES)
 
-        # Дедупликация
-        seen = set()
-        unique = []
-        for prod in all_products:
-            if prod["id"] not in seen:
-                seen.add(prod["id"])
-                unique.append(prod)
+        print(f"[{self.SOURCE_NAME}] Итого: {len(all_products)}")
+        return all_products
 
-        print(f"[{self.SOURCE_NAME}] Итого: {len(unique)}")
-        return unique
-
-    # ------------------------------------------------------------------ #
-    # Разбор элементов JSON                                               #
-    # ------------------------------------------------------------------ #
-
-    def _parse_items(self, items):
+    def _parse_items(self, items, seen_ids):
         products = []
         for item in items:
             try:
                 pid = str(item.get("id", ""))
-                if not pid:
+                if not pid or pid in seen_ids:
                     continue
+                seen_ids.add(pid)
 
                 brand = item.get("brand", "") or ""
-                name  = item.get("name", "") or item.get("title", "") or ""
+                name = item.get("name", "") or ""
                 if brand and not name.lower().startswith(brand.lower()):
                     name = f"{brand} {name}".strip()
                 if not name or len(name) < 3:
                     continue
 
-                # salePriceU / priceU — в копейках (делим на 100)
+                # Цена в копейках → рубли
                 price = None
-                for key in ("salePriceU", "priceU"):
-                    raw = item.get(key)
-                    if raw:
-                        price = int(raw) // 100
-                        break
-
-                # Fallback: sizes[0].price.product (тоже копейки)
-                if not price:
-                    sizes = item.get("sizes") or []
-                    if sizes:
-                        p = sizes[0].get("price") or {}
-                        raw = p.get("product") or p.get("total") or p.get("basic")
-                        if raw:
+                sizes = item.get("sizes") or []
+                if sizes:
+                    price_obj = sizes[0].get("price") or {}
+                    for key in ("product", "basic", "total"):
+                        raw = price_obj.get(key)
+                        if raw and int(raw) > 0:
                             price = int(raw) // 100
+                            break
 
                 if not price or not (300 < price < 10_000_000):
                     continue
@@ -151,7 +127,7 @@ class WbParser(BaseParser):
                 continue
         return products
 
-    # Методы ABC — не используются, но требуются
+    # ABC stubs
     def parse_products(self, html):
         return []
 
