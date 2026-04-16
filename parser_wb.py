@@ -55,14 +55,14 @@ class WbParser(BaseParser):
             print(f"[{self.SOURCE_NAME}] Страница {page_num}: {self.SEARCH_QUERY!r}")
 
             try:
-                r = session.get(url, timeout=20)
+                r = session.get(url, timeout=(10, 40))
                 # Retry на 429 с нарастающей задержкой
                 for wait in (15, 30):
                     if r.status_code != 429:
                         break
                     print(f"[{self.SOURCE_NAME}] Rate limit — ждём {wait} сек")
                     time.sleep(wait)
-                    r = session.get(url, timeout=20)
+                    r = session.get(url, timeout=(10, 40))
                 if r.status_code != 200 or not r.text:
                     print(f"[{self.SOURCE_NAME}] Стр. {page_num}: статус {r.status_code} — стоп")
                     break
