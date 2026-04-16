@@ -39,24 +39,36 @@ from parser_regard_categories import CATEGORY_PARSERS as REGARD_PARSERS
 from parser_wb_categories import CATEGORY_PARSERS as WB_PARSERS
 
 
+def _name_tokens(name: str) -> list:
+    s = name.lower()
+    raw = re.findall(r"[a-zа-яё0-9]+", s)
+    split = re.sub(r"([a-zа-яё])(\d)", r"\1 \2", s)
+    split = re.sub(r"(\d)([a-zа-яё])", r"\1 \2", split)
+    return list(set(raw + re.findall(r"[a-zа-яё0-9]+", split)))
+
+
+def _query_word_matches(query_word: str, name_tokens: list) -> bool:
+    for token in name_tokens:
+        if token.startswith(query_word):
+            return True
+        if (len(query_word) >= 6 and query_word.isalpha()
+                and len(token) >= 6 and token.isalpha()):
+            if token[:-2] == query_word[:-2]:
+                return True
+    return False
+
+
 def filter_by_query(items, query):
     """
-    Фильтрует список по поисковому запросу (начало слова).
-    "RTX 5070" найдёт "RTX 5070 Ti", но не "RTX 50700".
-    'RTX5060' без пробела тоже найдёт поиск '5060'.
+    Фильтрует список по поисковому запросу.
+    'RTX 5070' найдёт 'RTX 5070 Ti', 'RTX5060' найдёт '5060'.
+    'видеокарту' найдёт 'видеокарта' (русское склонение).
     """
     query_words = query.lower().split()
     results = []
     for item in items:
-        s = item["name"].lower()
-        raw = re.findall(r"[a-zа-яё0-9]+", s)
-        split = re.sub(r"([a-zа-яё])(\d)", r"\1 \2", s)
-        split = re.sub(r"(\d)([a-zа-яё])", r"\1 \2", split)
-        name_words = list(set(raw + re.findall(r"[a-zа-яё0-9]+", split)))
-        if all(
-            any(nw.startswith(qw) for nw in name_words)
-            for qw in query_words
-        ):
+        tokens = _name_tokens(item["name"])
+        if all(_query_word_matches(qw, tokens) for qw in query_words):
             results.append(item)
     return results
 

@@ -28,6 +28,22 @@ def _name_tokens(name: str) -> list:
     return list(set(raw + expanded))
 
 
+def _query_word_matches(query_word: str, name_tokens: list) -> bool:
+    """Проверяет, подходит ли слово запроса к любому токену названия.
+    Поддерживает русское склонение: 'видеокарту' найдёт 'видеокарта' (сравнение стемов).
+    """
+    for token in name_tokens:
+        if token.startswith(query_word):
+            return True
+        # Для чисто буквенных слов ≥6 символов — сравниваем стемы (первые N-2 букв)
+        # 'видеокарту' (10 букв) и 'видеокарта' (10 букв) → stem 'видекарт' == 'видекарт'
+        if (len(query_word) >= 6 and query_word.isalpha()
+                and len(token) >= 6 and token.isalpha()):
+            if token[:-2] == query_word[:-2]:
+                return True
+    return False
+
+
 def _make_slug(name: str) -> str:
     """Генерирует URL-slug из названия товара."""
     s = name.lower()
@@ -295,8 +311,8 @@ def search_products(query=None, brand=None, chip=None, sources=None):
             sql += " AND p.brand = ?"
             params.append(brand)
         if chip:
-            sql += " AND p.model LIKE ?"
-            params.append(f"%{chip}%")
+            sql += " AND (p.model LIKE ? OR p.name LIKE ?)"
+            params.extend([f"%{chip}%", f"%{chip}%"])
 
         sql += " ORDER BY p.name"
         products = [dict(r) for r in conn.execute(sql, params).fetchall()]
@@ -305,10 +321,8 @@ def search_products(query=None, brand=None, chip=None, sources=None):
             query_words = query.lower().split()
             products = [
                 p for p in products
-                if all(
-                    any(w.startswith(qw) for w in _name_tokens(p["name"]))
-                    for qw in query_words
-                )
+                if all(_query_word_matches(qw, _name_tokens(p["name"]))
+                       for qw in query_words)
             ]
 
         # Группируем по canonical_id
