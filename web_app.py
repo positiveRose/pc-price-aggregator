@@ -8,7 +8,9 @@
 """
 
 import json
+import logging
 import os
+import secrets
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -28,14 +30,16 @@ GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/au
 
 BASE_DIR = Path(__file__).parent
 
+_SESSION_SECRET = os.getenv("SESSION_SECRET")
+if not _SESSION_SECRET:
+    _SESSION_SECRET = secrets.token_hex(32)
+    logging.warning(
+        "SESSION_SECRET не задан — используется случайный ключ. "
+        "Сессии сбросятся при перезапуске. Задайте SESSION_SECRET в окружении."
+    )
+
 app = FastAPI(title="PC Parts Aggregator")
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=os.getenv(
-        "SESSION_SECRET",
-        "f7a3b2c9e1d04f58a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9",
-    ),
-)
+app.add_middleware(SessionMiddleware, secret_key=_SESSION_SECRET)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
@@ -202,10 +206,12 @@ async def profile_delete(request: Request):
 @app.get("/cart", response_class=HTMLResponse)
 async def cart_page(request: Request):
     cart = get_cart(request)
+    product_ids = [item["product_id"] for item in cart]
+    products_map = db.get_products_with_offers_bulk(product_ids)
     enriched = []
     total = 0
     for item in cart:
-        product = db.get_product_with_offers(item["product_id"])
+        product = products_map.get(item["product_id"])
         if not product:
             continue
         best_price = product["offers"][0]["price"] if product["offers"] else 0

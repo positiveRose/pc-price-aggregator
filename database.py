@@ -268,24 +268,22 @@ def migrate_db():
         ).fetchone()
         if not has_stale:
             continue
-        conn.execute(f"""
-            DELETE FROM price_history
-            WHERE offer_id IN (
-                SELECT id FROM offers
-                WHERE source LIKE '{prefix}-%'
-                  AND source_id IN (
-                    SELECT source_id FROM offers WHERE source = '{prefix}'
-                  )
-            )
-        """)
-        conn.execute(f"""
-            DELETE FROM offers
-            WHERE source LIKE '{prefix}-%'
-              AND source_id IN (
-                SELECT source_id FROM offers WHERE source = '{prefix}'
-              )
-        """)
-        conn.execute(f"UPDATE offers SET source = '{prefix}' WHERE source LIKE '{prefix}-%'")
+        conn.execute(
+            "DELETE FROM price_history WHERE offer_id IN ("
+            "  SELECT id FROM offers WHERE source LIKE ?"
+            "  AND source_id IN (SELECT source_id FROM offers WHERE source = ?)"
+            ")",
+            (f"{prefix}-%", prefix),
+        )
+        conn.execute(
+            "DELETE FROM offers WHERE source LIKE ?"
+            "  AND source_id IN (SELECT source_id FROM offers WHERE source = ?)",
+            (f"{prefix}-%", prefix),
+        )
+        conn.execute(
+            "UPDATE offers SET source = ? WHERE source LIKE ?",
+            (prefix, f"{prefix}-%"),
+        )
     conn.commit()
     conn.close()
 
@@ -415,6 +413,25 @@ def get_product_with_offers(product_id):
         if not row:
             return None
         return _attach_offers(conn, dict(row))
+    finally:
+        conn.close()
+
+
+def get_products_with_offers_bulk(product_ids: list) -> dict:
+    """Возвращает dict {product_id: product_with_offers} одним запросом (без N+1)."""
+    if not product_ids:
+        return {}
+    conn = get_connection()
+    try:
+        placeholders = ",".join("?" * len(product_ids))
+        rows = conn.execute(
+            f"SELECT * FROM products WHERE id IN ({placeholders})", product_ids
+        ).fetchall()
+        result = {}
+        for row in rows:
+            product = _attach_offers(conn, dict(row))
+            result[row["id"]] = product
+        return result
     finally:
         conn.close()
 

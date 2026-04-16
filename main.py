@@ -21,10 +21,10 @@
     python main.py --web               — запустить веб-сервер
 """
 
-import re
 import sys
 
 import database as db
+from database import _name_tokens, _query_word_matches
 from parser_citilink import CitilinkParser
 from parser_citilink_categories import CATEGORY_PARSERS as CITILINK_PARSERS
 from parser_dns import DnsParser
@@ -37,25 +37,6 @@ from parser_ozon_categories import CATEGORY_PARSERS as OZON_PARSERS
 from parser_regard import RegardParser
 from parser_regard_categories import CATEGORY_PARSERS as REGARD_PARSERS
 from parser_wb_categories import CATEGORY_PARSERS as WB_PARSERS
-
-
-def _name_tokens(name: str) -> list:
-    s = name.lower()
-    raw = re.findall(r"[a-zа-яё0-9]+", s)
-    split = re.sub(r"([a-zа-яё])(\d)", r"\1 \2", s)
-    split = re.sub(r"(\d)([a-zа-яё])", r"\1 \2", split)
-    return list(set(raw + re.findall(r"[a-zа-яё0-9]+", split)))
-
-
-def _query_word_matches(query_word: str, name_tokens: list) -> bool:
-    for token in name_tokens:
-        if token.startswith(query_word):
-            return True
-        if (len(query_word) >= 6 and query_word.isalpha()
-                and len(token) >= 6 and token.isalpha()):
-            if token[:-2] == query_word[:-2]:
-                return True
-    return False
 
 
 def filter_by_query(items, query):

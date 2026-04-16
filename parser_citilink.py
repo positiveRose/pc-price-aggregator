@@ -48,6 +48,8 @@ class CitilinkParser(BaseParser):
 
         try:
             price = int(float(price_el["data-meta-price"]))
+            if not (300 < price < 10_000_000):
+                return None
         except (ValueError, TypeError):
             return None
 
@@ -55,7 +57,7 @@ class CitilinkParser(BaseParser):
         product_id = card.get("data-meta-product-id", "")
         if not product_id:
             parts = href.rstrip("/").split("-")
-            product_id = parts[-1] if parts[-1].isdigit() else "unknown"
+            product_id = parts[-1] if parts[-1].isdigit() else href.rstrip("/").rsplit("/", 1)[-1]
 
         return {
             "id": product_id,

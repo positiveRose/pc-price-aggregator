@@ -89,13 +89,18 @@ class RegardParser(BaseParser):
         """'20 990₽' → 20990"""
         digits = re.sub(r"[^\d]", "", text)
         if digits:
-            return int(digits)
+            val = int(digits)
+            if 300 < val < 10_000_000:
+                return val
         return None
 
     def _extract_id(self, href):
         """/product/459278/nakopitel-... → 459278"""
         match = re.search(r"/product/(\d+)", href)
-        return match.group(1) if match else "unknown"
+        if not match:
+            # Используем URL как fallback вместо "unknown" во избежание конфликтов source_id
+            return href.split("?")[0].rstrip("/").rsplit("/", 1)[-1] or href
+        return match.group(1)
 
     def get_total_pages(self, html):
         """Регард: ищем максимальный номер в пагинации или считаем из общего числа."""
