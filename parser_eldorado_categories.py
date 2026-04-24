@@ -5,12 +5,16 @@ URL формат: https://www.eldorado.ru/c/{category-slug}/
 
 from parser_eldorado import EldoradoParser
 
-# Эльдорадо продаёт только эти 3 категории как отдельные компоненты.
-# RAM/SSD/HDD/PSU/CASE/COOLER на сайте отсутствуют.
 ELDORADO_CATEGORIES = {
-    "GPU": "https://www.eldorado.ru/c/videokarty/",
-    "CPU": "https://www.eldorado.ru/c/protsessory/",
-    "MB":  "https://www.eldorado.ru/c/materinskie-platy/",
+    "GPU":    "https://www.eldorado.ru/c/videokarty/",
+    "CPU":    "https://www.eldorado.ru/c/protsessory/",
+    "MB":     "https://www.eldorado.ru/c/materinskie-platy/",
+    "RAM":    "https://www.eldorado.ru/c/operativnaya-pamyat/",
+    "SSD":    "https://www.eldorado.ru/c/ssd/",
+    "HDD":    "https://www.eldorado.ru/c/zhestkie-diski/",
+    "PSU":    "https://www.eldorado.ru/c/bloki-pitaniya/",
+    "CASE":   "https://www.eldorado.ru/c/korpusa/",
+    "COOLER": "https://www.eldorado.ru/c/sistemy-okhlazhdeniya/",
 }
 
 

@@ -141,6 +141,7 @@ class MvideoParser(BaseParser):
                 else:
                     total = 0
                 print(f"[{self.SOURCE_NAME}] Всего товаров: {total}")
+                self._last_total = total
 
             # Прекращаем только при пустом ответе
             if not pids:

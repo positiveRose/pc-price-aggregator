@@ -14,7 +14,7 @@ import time
 import requests
 from bs4 import BeautifulSoup
 
-from base_parser import BaseParser
+from base_parser import BaseParser, get_requests_proxies
 
 
 class NixParser(BaseParser):
@@ -43,6 +43,9 @@ class NixParser(BaseParser):
     def run(self):
         s = requests.Session()
         s.headers.update(self._HEADERS)
+        proxies = get_requests_proxies()
+        if proxies:
+            s.proxies.update(proxies)
         products = []
         page = 1
 

@@ -18,7 +18,7 @@ import time
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 
-from base_parser import BaseParser
+from base_parser import BaseParser, _CHROMIUM_ARGS, PARSER_PROXY
 
 
 class OzonParser(BaseParser):
@@ -38,16 +38,19 @@ class OzonParser(BaseParser):
         all_products = []
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                viewport={"width": 1920, "height": 1080},
-                locale="ru-RU",
-                user_agent=(
+            browser = p.chromium.launch(headless=True, args=_CHROMIUM_ARGS)
+            ctx_opts = {
+                "viewport": {"width": 1920, "height": 1080},
+                "locale": "ru-RU",
+                "user_agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/131.0.0.0 Safari/537.36"
                 ),
-            )
+            }
+            if PARSER_PROXY:
+                ctx_opts["proxy"] = {"server": PARSER_PROXY}
+            context = browser.new_context(**ctx_opts)
             pg = context.new_page()
             Stealth().apply_stealth_sync(pg)
 

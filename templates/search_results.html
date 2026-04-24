@@ -7,6 +7,8 @@
     <h1 class="page-title">
         {% if query %}
             Результаты: &laquo;{{ query }}&raquo;
+        {% elif category %}
+            {{ category_labels[category] or category }}
         {% else %}
             Все товары
         {% endif %}
@@ -15,6 +17,13 @@
 
     <form action="/search" method="get" class="filters" id="filter-form">
         <input type="hidden" name="q" value="{{ query or '' }}">
+
+        <select name="category" class="filter-select" onchange="this.form.submit()">
+            <option value="">Все товары</option>
+            {% for key, label in category_labels.items() %}
+            <option value="{{ key }}" {% if category == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
 
         {% if filters.brands %}
         <select name="brand" class="filter-select" onchange="this.form.submit()">
@@ -27,7 +36,7 @@
 
         {% if filters.models %}
         <select name="chip" class="filter-select" onchange="this.form.submit()">
-            <option value="">Все GPU</option>
+            <option value="">{{ chip_label }}</option>
             {% for m in filters.models %}
             <option value="{{ m }}" {% if chip == m %}selected{% endif %}>{{ m }}</option>
             {% endfor %}
@@ -44,7 +53,7 @@
         {% endif %}
 
         {% if brand or chip or source %}
-        <a href="/search?q={{ query or '' }}" class="btn btn-outline">Сбросить</a>
+        <a href="/search?q={{ query or '' }}{% if category %}&category={{ category }}{% endif %}" class="btn btn-outline">Сбросить</a>
         {% endif %}
     </form>
 

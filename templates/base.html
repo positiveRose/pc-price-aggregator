@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}PC Parts Aggregator{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="stylesheet" href="/static/style.css?v=11">
+    <link rel="stylesheet" href="/static/style.css?v=12">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
@@ -48,6 +48,7 @@
             <a href="/search" class="sidebar-link">Все товары</a>
             <a href="/cart" class="sidebar-link">Корзина {% if cart_count > 0 %}<span class="cart-badge-sm">{{ cart_count }}</span>{% endif %}</a>
             <a href="/pricing" class="sidebar-link">Тарифы</a>
+
         </nav>
     </aside>
 

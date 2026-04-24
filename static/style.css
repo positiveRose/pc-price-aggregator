@@ -577,6 +577,15 @@ a:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
 }
+.sidebar-link.active {
+    background: rgba(155, 89, 182, 0.15);
+    color: var(--accent-light);
+    font-weight: 600;
+}
+.sidebar-cat {
+    font-size: 0.85rem;
+    padding: 0.35rem 0.75rem;
+}
 
 .main-content {
     min-width: 0;

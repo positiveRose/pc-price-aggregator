@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 *.db
 *.sqlite
+.session_secret
+.parser_proxy
+scan_results.txt
+scan_stores.py

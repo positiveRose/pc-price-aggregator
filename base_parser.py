@@ -9,11 +9,129 @@
 - get_page_url(page_num) — URL конкретной страницы
 """
 
+import os
+import socket
+import struct
 import time
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
+
+
+# ── DNS-фоллбэк через 8.8.8.8 ───────────────────────────────────────────────
+# Если VPN перехватывает DNS и не может разрезолвить российские домены,
+# перехватываем socket.getaddrinfo: сначала обычный DNS, при ошибке — 8.8.8.8.
+# Никакого прокси не нужно.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _dns_query_udp(hostname: str, nameserver: str = "8.8.8.8") -> str | None:
+    """Минимальный A-record запрос через UDP без зависимостей."""
+    try:
+        # Собираем DNS-пакет вручную
+        tid = b"\xAB\xCD"
+        header = tid + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"
+        question = b""
+        for label in hostname.encode().split(b"."):
+            question += bytes([len(label)]) + label
+        question += b"\x00\x00\x01\x00\x01"  # TYPE A, CLASS IN
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(3.0)
+        sock.sendto(header + question, (nameserver, 53))
+        data, _ = sock.recvfrom(512)
+        sock.close()
+
+        # Пропускаем заголовок (12 байт) и секцию вопроса
+        offset = 12
+        while data[offset] != 0:
+            if data[offset] & 0xC0 == 0xC0:
+                offset += 2
+                break
+            offset += data[offset] + 1
+        else:
+            offset += 1
+        offset += 4  # QTYPE + QCLASS
+
+        ancount = struct.unpack("!H", data[6:8])[0]
+        if ancount < 1:
+            return None
+
+        # Пропускаем имя в первом ответе
+        if data[offset] & 0xC0 == 0xC0:
+            offset += 2
+        else:
+            while data[offset] != 0:
+                offset += data[offset] + 1
+            offset += 1
+
+        rtype = struct.unpack("!H", data[offset : offset + 2])[0]
+        offset += 8   # type(2) + class(2) + ttl(4)
+        rdlen = struct.unpack("!H", data[offset : offset + 2])[0]
+        offset += 2
+
+        if rtype == 1 and rdlen == 4:  # A-запись
+            return ".".join(str(b) for b in data[offset : offset + 4])
+    except Exception:
+        pass
+    return None
+
+
+_original_getaddrinfo = socket.getaddrinfo
+
+
+def _patched_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    try:
+        return _original_getaddrinfo(host, port, family, type, proto, flags)
+    except socket.gaierror:
+        # DNS через VPN не сработал — пробуем напрямую через 8.8.8.8
+        ip = _dns_query_udp(str(host))
+        if ip:
+            print(f"[dns] VPN-DNS fail → 8.8.8.8: {host} → {ip}")
+            return _original_getaddrinfo(ip, port, family, type, proto, flags)
+        raise
+
+
+socket.getaddrinfo = _patched_getaddrinfo
+
+# ── Прокси ──────────────────────────────────────────────────────────────────
+# Читается из переменной окружения PARSER_PROXY или файла .parser_proxy.
+# Формат: socks5://127.0.0.1:1080  или  http://user:pass@host:port
+# Используется всеми парсерами (Playwright + requests).
+#
+# Настройка:
+#   1. Подними SOCKS5-прокси с российским IP (например SSH-туннель):
+#          ssh -D 1080 -N user@ru-server
+#   2. Создай файл .parser_proxy в папке проекта:
+#          socks5://127.0.0.1:1080
+# ─────────────────────────────────────────────────────────────────────────────
+_PROXY_FILE = Path(__file__).parent / ".parser_proxy"
+PARSER_PROXY: str | None = (
+    os.getenv("PARSER_PROXY")
+    or (_PROXY_FILE.read_text().strip() if _PROXY_FILE.exists() else None)
+)
+if PARSER_PROXY:
+    print(f"[proxy] Используется прокси: {PARSER_PROXY}")
+
+# ── Аргументы Chromium ───────────────────────────────────────────────────────
+# DNS-over-HTTPS через Google — обходит VPN-DNS, который не резолвит RU-домены.
+# Используется всеми Playwright-парсерами (base + ozon).
+# ─────────────────────────────────────────────────────────────────────────────
+_CHROMIUM_ARGS = [
+    "--dns-prefetch-disable",
+    "--dns-over-https-mode=secure",
+    "--dns-over-https-templates=https://dns.google/dns-query{?dns}",
+]
+
+
+def get_requests_proxies() -> dict | None:
+    """Возвращает словарь proxies для requests.Session, или None."""
+    if not PARSER_PROXY:
+        return None
+    # socks5h — резолвинг имён через прокси (важно для обхода VPN-DNS)
+    url = PARSER_PROXY.replace("socks5://", "socks5h://")
+    return {"http": url, "https": url}
 
 
 class BaseParser(ABC):
@@ -27,17 +145,14 @@ class BaseParser(ABC):
     MAX_PAGES = 50         # Максимум страниц (защита от бесконечного цикла)
     DELAY_BETWEEN_PAGES = 3  # Задержка между страницами (секунды)
     BROWSER = "chromium"   # 'chromium' или 'firefox'
+    _last_total = None     # Заполняется парсером если сайт возвращает total товаров
 
     def _create_browser(self, playwright):
         """Создаёт браузер и страницу со stealth."""
         launcher = getattr(playwright, self.BROWSER)
         browser = launcher.launch(
             headless=True,
-            args=[
-                # Используем системный DNS-резолвер вместо встроенного DoH
-                "--disable-features=SecureDns",
-                "--dns-prefetch-disable",
-            ],
+            args=_CHROMIUM_ARGS,
         )
 
         context_opts = {
@@ -50,6 +165,8 @@ class BaseParser(ABC):
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/131.0.0.0 Safari/537.36"
             )
+        if PARSER_PROXY:
+            context_opts["proxy"] = {"server": PARSER_PROXY}
 
         context = browser.new_context(**context_opts)
         page = context.new_page()
@@ -76,7 +193,7 @@ class BaseParser(ABC):
                 print(f"[{self.SOURCE_NAME}] Карточки не появились, жду ещё...")
                 time.sleep(10)
         else:
-            time.sleep(3)
+            time.sleep(self.DELAY_BETWEEN_PAGES)
 
         return page.content()
 

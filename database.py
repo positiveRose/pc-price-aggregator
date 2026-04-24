@@ -68,10 +68,11 @@ def _unique_slug(conn, name: str, exclude_id: int = None) -> str:
 
 
 def get_connection():
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(DB_PATH), timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=10000")
     return conn
 
 
@@ -115,10 +116,49 @@ def init_db():
             password    TEXT NOT NULL,
             created_at  TEXT NOT NULL DEFAULT (datetime('now'))
         );
+
+        CREATE TABLE IF NOT EXISTS parse_runs (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            parser_key    TEXT NOT NULL,
+            source        TEXT NOT NULL,
+            category      TEXT,
+            started_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            finished_at   TEXT,
+            status        TEXT NOT NULL DEFAULT 'running',
+            error_msg     TEXT,
+            expected_total INTEGER,
+            items_found   INTEGER NOT NULL DEFAULT 0,
+            saved_count   INTEGER NOT NULL DEFAULT 0,
+            updated_count INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_parse_runs_started
+            ON parse_runs(started_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_parse_runs_source
+            ON parse_runs(source, category);
     """)
     conn.commit()
     conn.close()
     migrate_db()
+
+
+def mark_missing_as_out_of_stock(source: str, present_ids: list):
+    """
+    Помечает как in_stock=0 все офферы этого source,
+    которых нет в списке present_ids (товары исчезли со страницы каталога).
+    """
+    if not present_ids:
+        return
+    conn = get_connection()
+    try:
+        placeholders = ",".join("?" * len(present_ids))
+        conn.execute(
+            f"UPDATE offers SET in_stock=0 "
+            f"WHERE source=? AND in_stock=1 AND source_id NOT IN ({placeholders})",
+            [source] + list(present_ids),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def find_product_by_name(conn, name):
@@ -285,10 +325,163 @@ def migrate_db():
             (prefix, f"{prefix}-%"),
         )
     conn.commit()
+
+    # parse_runs — итерация 8
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    if "parse_runs" not in tables:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS parse_runs (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                parser_key    TEXT NOT NULL,
+                source        TEXT NOT NULL,
+                category      TEXT,
+                started_at    TEXT NOT NULL DEFAULT (datetime('now')),
+                finished_at   TEXT,
+                status        TEXT NOT NULL DEFAULT 'running',
+                error_msg     TEXT,
+                expected_total INTEGER,
+                items_found   INTEGER NOT NULL DEFAULT 0,
+                saved_count   INTEGER NOT NULL DEFAULT 0,
+                updated_count INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_parse_runs_started
+                ON parse_runs(started_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_parse_runs_source
+                ON parse_runs(source, category);
+        """)
+        conn.commit()
+
+    # Зависшие runs (процесс был убит) — помечаем как failed
+    conn.execute(
+        "UPDATE parse_runs SET status='failed', error_msg='Process was killed' "
+        "WHERE status='running'"
+    )
+    conn.commit()
+
     conn.close()
 
 
-def search_products(query=None, brand=None, chip=None, sources=None):
+# ------------------------------------------------------------------ #
+# Логирование запусков парсеров                                        #
+# ------------------------------------------------------------------ #
+
+def start_parse_run(parser_key: str, source: str, category: str = None) -> int:
+    """Создаёт запись о начале запуска, возвращает run_id."""
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "INSERT INTO parse_runs (parser_key, source, category, status) "
+            "VALUES (?, ?, ?, 'running')",
+            (parser_key, source, category),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def finish_parse_run(run_id: int, status: str, items_found: int,
+                     saved: int, updated: int,
+                     expected_total: int = None, error_msg: str = None):
+    """Завершает запись о запуске."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE parse_runs SET finished_at=datetime('now'), status=?, "
+            "items_found=?, saved_count=?, updated_count=?, "
+            "expected_total=?, error_msg=? WHERE id=?",
+            (status, items_found, saved, updated, expected_total, error_msg, run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_parse_runs(source: str = None, limit: int = 100) -> list:
+    """История запусков для страницы аудита."""
+    conn = get_connection()
+    try:
+        if source:
+            rows = conn.execute(
+                "SELECT * FROM parse_runs WHERE source=? "
+                "ORDER BY started_at DESC LIMIT ?",
+                (source, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM parse_runs ORDER BY started_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_audit_summary() -> list:
+    """
+    Агрегированный отчёт: последний завершённый run по каждой (source, category)
+    с количеством офферов в БД.
+    Включает источники которые есть в offers но ещё не имеют parse_runs.
+    """
+    conn = get_connection()
+    try:
+        rows = conn.execute("""
+            WITH last_runs AS (
+                SELECT *,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY source, category
+                           ORDER BY started_at DESC
+                       ) AS rn
+                FROM parse_runs
+                WHERE status != 'running'
+            ),
+            db_counts AS (
+                SELECT o.source, p.category, COUNT(*) AS db_count
+                FROM offers o
+                JOIN products p ON p.id = o.product_id
+                GROUP BY o.source, p.category
+            ),
+            parsed_sources AS (
+                SELECT DISTINCT source FROM parse_runs
+            )
+            SELECT lr.source, lr.category, lr.started_at AS last_run,
+                   lr.status, lr.items_found, lr.expected_total,
+                   COALESCE(dc.db_count, 0) AS db_count
+            FROM last_runs lr
+            LEFT JOIN db_counts dc
+                ON dc.source = lr.source
+               AND dc.category = lr.category
+            WHERE lr.rn = 1
+
+            UNION ALL
+
+            SELECT dc.source, dc.category,
+                   NULL AS last_run, 'never' AS status,
+                   NULL AS items_found, NULL AS expected_total,
+                   dc.db_count
+            FROM db_counts dc
+            WHERE dc.source NOT IN (SELECT source FROM parsed_sources)
+
+            ORDER BY source, category
+        """).fetchall()
+        result = []
+        for r in rows:
+            row = dict(r)
+            if row["expected_total"] and row["items_found"] is not None:
+                row["coverage_pct"] = round(
+                    row["items_found"] / row["expected_total"] * 100, 1
+                )
+            else:
+                row["coverage_pct"] = None
+            result.append(row)
+        return result
+    finally:
+        conn.close()
+
+
+def search_products(query=None, brand=None, chip=None, sources=None, category=None):
     """
     Поиск товаров с группировкой по canonical_id.
     Возвращает список товаров, каждый с вложенным списком offers.
@@ -305,6 +498,9 @@ def search_products(query=None, brand=None, chip=None, sources=None):
         """
         params = []
 
+        if category:
+            sql += " AND p.category = ?"
+            params.append(category)
         if brand:
             sql += " AND p.brand = ?"
             params.append(brand)
@@ -343,13 +539,13 @@ def search_products(query=None, brand=None, chip=None, sources=None):
         """, group_ids).fetchall()
         all_product_ids = [r["id"] for r in related]
 
-        # Загружаем offers для ВСЕХ связанных товаров
+        # Загружаем offers для ВСЕХ связанных товаров (только в наличии)
         placeholders = ",".join("?" * len(all_product_ids))
         offers = conn.execute(f"""
             SELECT o.*, p.name as product_name, COALESCE(p.canonical_id, p.id) AS group_id
             FROM offers o
             JOIN products p ON p.id = o.product_id
-            WHERE o.product_id IN ({placeholders})
+            WHERE o.product_id IN ({placeholders}) AND o.in_stock = 1
             ORDER BY o.price
         """, all_product_ids).fetchall()
 
@@ -361,9 +557,8 @@ def search_products(query=None, brand=None, chip=None, sources=None):
             if gid in groups:
                 groups[gid]["offers"].append(o)
 
-        # Убираем товары без офферов после фильтрации по источникам
-        if sources:
-            groups = {gid: g for gid, g in groups.items() if g["offers"]}
+        # Убираем товары без офферов в наличии
+        groups = {gid: g for gid, g in groups.items() if g["offers"]}
 
         return sorted(
             groups.values(),
@@ -386,7 +581,7 @@ def _attach_offers(conn, product: dict) -> dict:
         SELECT o.*, p.name as product_name
         FROM offers o
         JOIN products p ON p.id = o.product_id
-        WHERE o.product_id IN ({placeholders})
+        WHERE o.product_id IN ({placeholders}) AND o.in_stock = 1
         ORDER BY o.price
     """, related_ids).fetchall()
     product["offers"] = [dict(o) for o in offers]
@@ -418,19 +613,50 @@ def get_product_with_offers(product_id):
 
 
 def get_products_with_offers_bulk(product_ids: list) -> dict:
-    """Возвращает dict {product_id: product_with_offers} одним запросом (без N+1)."""
+    """Возвращает dict {product_id: product_with_offers} тремя запросами (без N+1)."""
     if not product_ids:
         return {}
     conn = get_connection()
     try:
-        placeholders = ",".join("?" * len(product_ids))
+        ph = ",".join("?" * len(product_ids))
+        # 1. Загружаем продукты
         rows = conn.execute(
-            f"SELECT * FROM products WHERE id IN ({placeholders})", product_ids
+            f"SELECT * FROM products WHERE id IN ({ph})", product_ids
         ).fetchall()
+        products = {r["id"]: dict(r) for r in rows}
+
+        # 2. Находим все связанные product_id (через canonical_id)
+        canonical_ids = list({p.get("canonical_id") or p["id"] for p in products.values()})
+        cph = ",".join("?" * len(canonical_ids))
+        related = conn.execute(
+            f"SELECT id, COALESCE(canonical_id, id) AS canonical FROM products "
+            f"WHERE COALESCE(canonical_id, id) IN ({cph})",
+            canonical_ids,
+        ).fetchall()
+        all_related_ids = [r["id"] for r in related]
+        pid_to_canonical = {r["id"]: r["canonical"] for r in related}
+
+        # 3. Загружаем все офферы за один запрос
+        oph = ",".join("?" * len(all_related_ids))
+        offers = conn.execute(f"""
+            SELECT o.*, p.name as product_name, COALESCE(p.canonical_id, p.id) AS canonical
+            FROM offers o
+            JOIN products p ON p.id = o.product_id
+            WHERE o.product_id IN ({oph}) AND o.in_stock = 1
+            ORDER BY o.price
+        """, all_related_ids).fetchall()
+
+        # Группируем офферы по canonical_id
+        offers_by_canonical: dict = {}
+        for o in offers:
+            offers_by_canonical.setdefault(o["canonical"], []).append(dict(o))
+
+        # Собираем результат
         result = {}
-        for row in rows:
-            product = _attach_offers(conn, dict(row))
-            result[row["id"]] = product
+        for pid, product in products.items():
+            canonical = pid_to_canonical.get(pid) or product.get("canonical_id") or pid
+            product["offers"] = offers_by_canonical.get(canonical, [])
+            result[pid] = product
         return result
     finally:
         conn.close()
@@ -464,16 +690,27 @@ def get_price_history_for_product(product_id):
         conn.close()
 
 
-def get_filter_options():
-    """Возвращает уникальные бренды, GPU модели и источники для фильтров."""
+def get_filter_options(category=None):
+    """Возвращает бренды, модели и источники для фильтров.
+    Если передана category — бренды и модели только для неё."""
     conn = get_connection()
     try:
-        brands = [r["brand"] for r in conn.execute(
-            "SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL ORDER BY brand"
-        ).fetchall()]
-        models = [r["model"] for r in conn.execute(
-            "SELECT DISTINCT model FROM products WHERE model IS NOT NULL ORDER BY model"
-        ).fetchall()]
+        if category:
+            brands = [r["brand"] for r in conn.execute(
+                "SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL AND category = ? ORDER BY brand",
+                (category,),
+            ).fetchall()]
+            models = [r["model"] for r in conn.execute(
+                "SELECT DISTINCT model FROM products WHERE model IS NOT NULL AND category = ? ORDER BY model",
+                (category,),
+            ).fetchall()]
+        else:
+            brands = [r["brand"] for r in conn.execute(
+                "SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL ORDER BY brand"
+            ).fetchall()]
+            models = [r["model"] for r in conn.execute(
+                "SELECT DISTINCT model FROM products WHERE model IS NOT NULL ORDER BY model"
+            ).fetchall()]
         sources = [r["source"] for r in conn.execute(
             "SELECT DISTINCT source FROM offers ORDER BY source"
         ).fetchall()]

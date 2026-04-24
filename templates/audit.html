@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block title %}Аудит парсеров — PC Parts{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Аудит парсеров</h1>
+    <p class="page-subtitle">Покрытие товаров и история запусков</p>
+</div>
+
+<!-- Coverage Summary -->
+<section class="card" style="margin-bottom: 2rem;">
+    <h2 class="card-title">Покрытие по магазинам</h2>
+    {% if summary %}
+    <div class="table-wrap">
+        <table class="audit-table">
+            <thead>
+                <tr>
+                    <th>Магазин</th>
+                    <th>Категория</th>
+                    <th>Последний запуск</th>
+                    <th>Статус</th>
+                    <th class="num">Найдено</th>
+                    <th class="num">Ожидалось</th>
+                    <th class="num">В БД</th>
+                    <th class="num">Покрытие</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in summary %}
+                <tr>
+                    <td><span class="source-badge">{{ r.source }}</span></td>
+                    <td>{{ r.category or '—' }}</td>
+                    <td class="ts">{{ (r.last_run or '—')[:19] }}</td>
+                    <td>
+                        {% if r.status == 'ok' %}
+                            <span class="status-ok">✓ ok</span>
+                        {% elif r.status == 'error' %}
+                            <span class="status-err">✗ ошибка</span>
+                        {% elif r.status == 'never' %}
+                            <span class="status-muted">не запускался</span>
+                        {% else %}
+                            <span class="status-muted">{{ r.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="num">{% if r.items_found is not none %}{{ r.items_found }}{% else %}—{% endif %}</td>
+                    <td class="num">
+                        {% if r.expected_total %}{{ r.expected_total }}
+                        {% else %}<span class="text-muted">—</span>{% endif %}
+                    </td>
+                    <td class="num">{{ r.db_count }}</td>
+                    <td class="num">
+                        {% if r.coverage_pct is not none %}
+                            <span class="{% if r.coverage_pct >= 95 %}cov-good{% elif r.coverage_pct >= 80 %}cov-mid{% else %}cov-bad{% endif %}">
+                                {{ r.coverage_pct }}%
+                            </span>
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <form method="post" action="/api/run-parser" style="display:inline">
+                            <input type="hidden" name="parser_key" value="{{ r.source }}-all">
+                            <button type="submit" class="btn btn-sm btn-outline run-btn"
+                                    title="Запустить все категории {{ r.source }}">▶</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-muted" style="padding: 1rem 0;">
+        Нет данных. Запустите парсер: <code>python main.py citilink-gpu</code>
+    </p>
+    {% endif %}
+</section>
+
+<!-- Run History -->
+<section class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 class="card-title">История запусков</h2>
+        <span class="text-muted" style="font-size:0.85rem;">последние {{ runs|length }} запусков</span>
+    </div>
+    {% if runs %}
+    <div class="table-wrap">
+        <table class="audit-table history-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Парсер</th>
+                    <th>Начало</th>
+                    <th>Конец</th>
+                    <th>Статус</th>
+                    <th class="num">Найдено</th>
+                    <th class="num">Новых</th>
+                    <th class="num">Обновлено</th>
+                    <th>Ошибка</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in runs %}
+                <tr>
+                    <td class="text-muted">{{ r.id }}</td>
+                    <td><code>{{ r.parser_key }}</code></td>
+                    <td class="ts">{{ (r.started_at or '')[:19] }}</td>
+                    <td class="ts">{{ (r.finished_at or '—')[:19] }}</td>
+                    <td>
+                        {% if r.status == 'ok' %}
+                            <span class="status-ok">✓</span>
+                        {% elif r.status == 'error' %}
+                            <span class="status-err">✗</span>
+                        {% else %}
+                            <span class="status-muted">{{ r.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="num">{{ r.items_found }}</td>
+                    <td class="num">{{ r.saved_count }}</td>
+                    <td class="num">{{ r.updated_count }}</td>
+                    <td class="text-muted err-cell">{{ r.error_msg or '' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-muted" style="padding: 1rem 0;">История пуста.</p>
+    {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<style>
+.page-header { margin-bottom: 1.5rem; }
+.page-header h1 { font-size: 1.8rem; font-weight: 700; }
+.page-subtitle { color: var(--text-secondary); margin-top: 0.25rem; }
+
+.card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; }
+.card-title { font-size: 1.1rem; font-weight: 600; margin-bottom: 1rem; color: var(--accent-light); }
+
+.table-wrap { overflow-x: auto; }
+.audit-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.audit-table th { text-align: left; padding: 0.5rem 0.75rem; color: var(--text-secondary); font-weight: 500; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.audit-table td { padding: 0.5rem 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: middle; }
+.audit-table tr:last-child td { border-bottom: none; }
+.audit-table tr:hover td { background: var(--bg-hover); }
+.audit-table .num { text-align: right; }
+.history-table { font-size: 0.83rem; }
+
+.source-badge { background: var(--bg-hover); border: 1px solid var(--border-light); border-radius: 4px; padding: 1px 6px; font-size: 0.82rem; font-weight: 600; color: var(--accent-light); }
+
+.ts { color: var(--text-secondary); font-size: 0.82rem; white-space: nowrap; }
+.text-muted { color: var(--text-muted); }
+
+.status-ok  { color: var(--success); font-weight: 600; }
+.status-err { color: var(--danger); font-weight: 600; }
+.status-muted { color: var(--text-muted); }
+
+.cov-good { color: var(--success); font-weight: 600; }
+.cov-mid  { color: #f39c12; font-weight: 600; }
+.cov-bad  { color: var(--danger); font-weight: 600; }
+
+.run-btn { padding: 2px 8px; font-size: 0.8rem; }
+.err-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem; }
+
+code { background: var(--bg-primary); border-radius: 4px; padding: 1px 5px; font-size: 0.82rem; color: var(--accent-light); }
+</style>
+{% endblock %}

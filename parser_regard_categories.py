@@ -5,17 +5,17 @@ URL формат: https://www.regard.ru/catalog/hits?q=BASE64({"byCategory":ID})
 
 from parser_regard import RegardParser
 
-# Точные URL из каталога regard.ru
+# Прямые URL каталога regard.ru (проверены — возвращают реальные товары)
 REGARD_CATEGORIES = {
-    "GPU":    "https://www.regard.ru/catalog/hits?q=eyJieUNhdGVnb3J5IjoxMDEzfQ",
+    "GPU":    "https://www.regard.ru/catalog/1013/videokarty",
     "CPU":    "https://www.regard.ru/catalog/1001/processory",
-    "MB":     "https://www.regard.ru/catalog/hits?q=eyJieUNhdGVnb3J5IjoxMDAwfQ",
-    "RAM":    "https://www.regard.ru/catalog/hits?q=eyJieUNhdGVnb3J5IjoxMDEwfQ",
-    "SSD":    "https://www.regard.ru/catalog/hits?q=eyJieUNhdGVnb3J5IjoxMDE1fQ",
-    "HDD":    "https://www.regard.ru/catalog/hits?q=eyJieUNhdGVnb3J5IjoxMDE0fQ",
-    "PSU":    "https://www.regard.ru/catalog/hits?q=eyJieUNhdGVnb3J5IjoxMjI1fQ",
-    "CASE":   "https://www.regard.ru/catalog/hits?q=eyJieUNhdGVnb3J5IjoxMDMyfQ",
-    "COOLER": "https://www.regard.ru/catalog/hits?q=eyJieUNhdGVnb3J5IjoxMDAzfQ",
+    "MB":     "https://www.regard.ru/catalog/1000/materinskie-platy",
+    "RAM":    "https://www.regard.ru/catalog/1010/operativnaya-pamyat",
+    "SSD":    "https://www.regard.ru/catalog/1015/ssd",
+    "HDD":    "https://www.regard.ru/catalog/1014/zhestkie-diski",
+    "PSU":    "https://www.regard.ru/catalog/1225/bloki-pitaniya",
+    "CASE":   "https://www.regard.ru/catalog/1032/korpusa",
+    "COOLER": "https://www.regard.ru/catalog/1003/sistemy-okhlazhdeniya",
 }
 
 

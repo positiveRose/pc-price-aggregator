@@ -1,5 +1,9 @@
 """
-Итерация 6: Агрегатор цен — Ситилинк + Регард + DNS + OLDI + e2e4 + МВидео + Эльдорадо + NIX + WB + Ozon → SQLite → веб-интерфейс.
+Итерация 9: Агрегатор цен — 17 магазинов → SQLite → веб-интерфейс.
+
+Магазины: Ситилинк, Регард, DNS, OLDI, e2e4, МВидео, Эльдорадо, NIX,
+          WB, Ozon, МегаМаркет, КЕЙ, Онлайн Трейд, Технопарк, Нотик,
+          Ultra, RBT
 
 Запуск:
     python main.py                     — парсить все магазины
@@ -12,6 +16,13 @@
     python main.py nix                 — все категории NIX.ru
     python main.py wb                  — все категории Wildberries
     python main.py ozon                — все категории Ozon
+    python main.py megamarket          — все категории МегаМаркет
+    python main.py key                 — все категории КЕЙ
+    python main.py onlinetrade         — все категории Онлайн Трейд
+    python main.py technopark          — все категории Технопарк
+    python main.py notik               — все категории Нотик
+    python main.py ultra               — все категории Ultra
+    python main.py rbt                 — все категории RBT
     python main.py citilink-all        — все категории Ситилинк
     python main.py regard-all          — все категории Регард
     python main.py --show              — показать сохранённые данные без парсинга
@@ -37,6 +48,13 @@ from parser_ozon_categories import CATEGORY_PARSERS as OZON_PARSERS
 from parser_regard import RegardParser
 from parser_regard_categories import CATEGORY_PARSERS as REGARD_PARSERS
 from parser_wb_categories import CATEGORY_PARSERS as WB_PARSERS
+from parser_megamarket_categories import CATEGORY_PARSERS as MEGAMARKET_PARSERS
+from parser_key_categories import CATEGORY_PARSERS as KEY_PARSERS
+from parser_onlinetrade_categories import CATEGORY_PARSERS as ONLINETRADE_PARSERS
+from parser_technopark_categories import CATEGORY_PARSERS as TECHNOPARK_PARSERS
+from parser_notik_categories import CATEGORY_PARSERS as NOTIK_PARSERS
+from parser_ultra_categories import CATEGORY_PARSERS as ULTRA_PARSERS
+from parser_rbt_categories import CATEGORY_PARSERS as RBT_PARSERS
 
 
 def filter_by_query(items, query):
@@ -72,6 +90,13 @@ PARSERS = {
     **NIX_PARSERS,
     **WB_PARSERS,
     **OZON_PARSERS,
+    **MEGAMARKET_PARSERS,
+    **KEY_PARSERS,
+    **ONLINETRADE_PARSERS,
+    **TECHNOPARK_PARSERS,
+    **NOTIK_PARSERS,
+    **ULTRA_PARSERS,
+    **RBT_PARSERS,
 }
 
 # Алиасы для запуска всех категорий конкретного магазина
@@ -83,8 +108,15 @@ _ALL_ALIASES = {
     "mvideo-all":   list(MVIDEO_PARSERS.keys()),
     "eldorado-all": list(ELDORADO_PARSERS.keys()),
     "nix-all":      list(NIX_PARSERS.keys()),
-    "wb-all":       list(WB_PARSERS.keys()),
-    "ozon-all":     list(OZON_PARSERS.keys()),
+    "wb-all":          list(WB_PARSERS.keys()),
+    "ozon-all":        list(OZON_PARSERS.keys()),
+    "megamarket-all":  list(MEGAMARKET_PARSERS.keys()),
+    "key-all":         list(KEY_PARSERS.keys()),
+    "onlinetrade-all": list(ONLINETRADE_PARSERS.keys()),
+    "technopark-all":  list(TECHNOPARK_PARSERS.keys()),
+    "notik-all":       list(NOTIK_PARSERS.keys()),
+    "ultra-all":       list(ULTRA_PARSERS.keys()),
+    "rbt-all":         list(RBT_PARSERS.keys()),
 }
 
 
@@ -101,48 +133,76 @@ def run_parsers(sources=None, max_pages=None):
             print(f"Неизвестный источник: {name}")
             continue
 
-        parser = parser_cls()
-        if max_pages is not None:
-            parser.MAX_PAGES = max_pages
+        source = getattr(parser_cls, "SOURCE_NAME", None) or name
+        category = getattr(parser_cls, "_CATEGORY", None)
+        run_id = None
         try:
+            run_id = db.start_parse_run(name, source, category)
+            parser = parser_cls()
+            if max_pages is not None:
+                parser.MAX_PAGES = max_pages
             products = parser.run()
             all_products[name] = products
 
             # Сохраняем в базу — используем SOURCE_NAME парсера, не ключ словаря
-            source = getattr(parser_cls, "SOURCE_NAME", None) or name
             saved, updated = db.save_products(products, source)
+            present_ids = [str(p["id"]) for p in products]
+            db.mark_missing_as_out_of_stock(source, present_ids)
+            expected = getattr(parser, "_last_total", None)
+            db.finish_parse_run(run_id, "ok", len(products), saved, updated, expected)
             print(f"[{name}] Сохранено: {saved} новых, {updated} обновлено")
         except Exception as e:
+            if run_id:
+                db.finish_parse_run(run_id, "error", 0, 0, 0, error_msg=str(e))
             print(f"[{name}] ОШИБКА: {e}")
 
     return all_products
 
 
 def print_comparison(search_query=None):
-    """Выводит сравнение цен из базы данных."""
-    offers = db.get_all_offers()
+    """Выводит сравнение цен из базы данных.
 
-    if search_query:
-        offers = filter_by_query(offers, search_query)
+    Без поискового запроса — только статистика по магазинам.
+    С запросом — список подходящих товаров с ценами.
+    """
+    offers = db.get_all_offers()
 
     if not offers:
         print("Нет данных для сравнения.")
         return
 
+    # Без запроса — только сводка по магазинам
+    if not search_query:
+        from collections import Counter
+        counts = Counter(o["source"] for o in offers)
+        total_products = len(set(o["name"] for o in offers))
+        print(f"\n{'='*70}")
+        print(f"БАЗА ДАННЫХ — {total_products} товаров, {len(offers)} предложений")
+        print(f"{'='*70}")
+        for source, cnt in sorted(counts.items()):
+            print(f"  {source.upper().ljust(12)} {cnt:>6} предложений")
+        print(f"{'='*70}")
+        print("Для поиска: python main.py --show \"RTX 4070\"")
+        return
+
+    filtered = filter_by_query(offers, search_query)
+    if not filtered:
+        print(f"Ничего не найдено по запросу: {search_query!r}")
+        return
+
     # Группируем по названию
     grouped = {}
-    for o in offers:
+    for o in filtered:
         name = o["name"]
         if name not in grouped:
             grouped[name] = []
         grouped[name].append(o)
 
     print(f"\n{'='*70}")
-    print(f"СРАВНЕНИЕ ЦЕН — {len(grouped)} товаров")
+    print(f"РЕЗУЛЬТАТЫ: «{search_query}» — {len(grouped)} товаров")
     print(f"{'='*70}\n")
 
     for i, (name, shop_offers) in enumerate(grouped.items(), 1):
-        # Сортируем по цене
         shop_offers.sort(key=lambda x: x["price"])
         best = shop_offers[0]
 
@@ -154,14 +214,11 @@ def print_comparison(search_query=None):
             print(f"    {source_label} {o['price']:>10,} руб.{marker}")
         print()
 
-    # Общая статистика
-    all_prices = [o["price"] for o in offers]
-    sources_count = len(set(o["source"] for o in offers))
+    all_prices = [o["price"] for o in filtered]
+    sources_count = len(set(o["source"] for o in filtered))
     print(f"{'='*70}")
-    print(f"Источников: {sources_count}")
-    print(f"Предложений: {len(offers)}")
-    print(f"Мин. цена: {min(all_prices):,} руб.")
-    print(f"Макс. цена: {max(all_prices):,} руб.")
+    print(f"Источников: {sources_count}  |  Предложений: {len(filtered)}")
+    print(f"Мин. цена: {min(all_prices):,} руб.  |  Макс. цена: {max(all_prices):,} руб.")
     print(f"* = лучшая цена")
 
 
@@ -170,6 +227,25 @@ def main():
 
     # Инициализируем БД при любом режиме
     db.init_db()
+
+    # Режим аудита полноты парсинга
+    if "--audit" in args:
+        rows = db.get_audit_summary()
+        if not rows:
+            print("Нет данных. Сначала запустите хотя бы один парсер.")
+            return
+        header = f"{'Магазин':<12} {'Категория':<8} {'Последний запуск':<20} {'Статус':<8} {'Найдено':>8} {'Ожидалось':>10} {'В БД':>7} {'Покрытие':>9}"
+        print(header)
+        print("-" * len(header))
+        for r in rows:
+            last_run = (r["last_run"] or "—")[:19]
+            found = "—" if r["items_found"] is None else str(r["items_found"])
+            expected = "—" if r["expected_total"] is None else str(r["expected_total"])
+            db_count = str(r["db_count"])
+            coverage = f"{r['coverage_pct']}%" if r["coverage_pct"] is not None else "—"
+            print(f"{r['source']:<12} {(r['category'] or '—'):<8} {last_run:<20} "
+                  f"{r['status']:<8} {found:>8} {expected:>10} {db_count:>7} {coverage:>9}")
+        return
 
     # Режим матчинга
     if "--match" in args:
@@ -215,7 +291,10 @@ def main():
             continue
         elif (arg.lower() in PARSERS
               or arg.lower() in _ALL_ALIASES
-              or arg.lower() in ("oldi", "e2e4", "mvideo", "eldorado", "nix", "wb", "ozon")):
+              or arg.lower() in (
+                  "oldi", "e2e4", "mvideo", "eldorado", "nix", "wb", "ozon",
+                  "megamarket", "key", "onlinetrade", "technopark", "notik", "ultra", "rbt",
+              )):
             sources.append(arg.lower())
         else:
             query_parts.append(arg)
@@ -234,8 +313,15 @@ def main():
         "mvideo":   list(MVIDEO_PARSERS.keys()),
         "eldorado": list(ELDORADO_PARSERS.keys()),
         "nix":      list(NIX_PARSERS.keys()),
-        "wb":       list(WB_PARSERS.keys()),
-        "ozon":     list(OZON_PARSERS.keys()),
+        "wb":          list(WB_PARSERS.keys()),
+        "ozon":        list(OZON_PARSERS.keys()),
+        "megamarket":  list(MEGAMARKET_PARSERS.keys()),
+        "key":         list(KEY_PARSERS.keys()),
+        "onlinetrade": list(ONLINETRADE_PARSERS.keys()),
+        "technopark":  list(TECHNOPARK_PARSERS.keys()),
+        "notik":       list(NOTIK_PARSERS.keys()),
+        "ultra":       list(ULTRA_PARSERS.keys()),
+        "rbt":         list(RBT_PARSERS.keys()),
     }
     for shop, keys in _SHOP_TO_PARSERS.items():
         if shop in sources:
@@ -246,7 +332,7 @@ def main():
     search_query = " ".join(query_parts) if query_parts else None
 
     # Запускаем парсеры
-    print("Агрегатор цен — Итерация 6")
+    print("Агрегатор цен — Итерация 10")
     print("-" * 40)
     all_products = run_parsers(sources, max_pages=max_pages)
 

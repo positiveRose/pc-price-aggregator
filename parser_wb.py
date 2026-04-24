@@ -9,7 +9,7 @@ import time
 
 import requests
 
-from base_parser import BaseParser
+from base_parser import BaseParser, get_requests_proxies
 
 _HEADERS = {
     "User-Agent": (
@@ -24,9 +24,9 @@ _HEADERS = {
 }
 
 _SEARCH_URL = (
-    "https://search.wb.ru/exactmatch/ru/common/v5/search"
+    "https://search.wb.ru/exactmatch/ru/common/v18/search"
     "?query={query}&resultset=catalog&limit=100&page={page}"
-    "&appType=1&curr=rub&dest=-1257786"
+    "&appType=1&curr=rub&dest=12358283&sort=popular&spp=30"
 )
 
 
@@ -38,11 +38,15 @@ class WbParser(BaseParser):
     CARD_SELECTOR = ""
     WAIT_TIMEOUT = 30000
     DELAY_BETWEEN_PAGES = 5
-    MAX_PAGES = 50
+    MAX_PAGES = 10           # 10 стр × 100 товаров = 1000 макс на категорию
+    MIN_FEEDBACKS = 5        # Минимум отзывов (прокси продаж: 5 отзывов ≈ 50+ продаж)
 
     def run(self):
         session = requests.Session()
         session.headers.update(_HEADERS)
+        proxies = get_requests_proxies()
+        if proxies:
+            session.proxies.update(proxies)
 
         all_products = []
         seen_ids = set()
@@ -94,6 +98,11 @@ class WbParser(BaseParser):
                 if not pid or pid in seen_ids:
                     continue
                 seen_ids.add(pid)
+
+                # Фильтр по отзывам: убираем товары без реальных продаж
+                feedbacks = item.get("feedbacks") or 0
+                if feedbacks < self.MIN_FEEDBACKS:
+                    continue
 
                 brand = item.get("brand", "") or ""
                 name = item.get("name", "") or ""

@@ -293,6 +293,8 @@ class EldoradoParser(BaseParser):
                 total_items, page_size = result
                 if total_items and page_size and page_size > 0:
                     max_page = max(max_page, math.ceil(total_items / page_size))
+                if total_items:
+                    self._last_total = total_items
             except Exception:
                 pass
 

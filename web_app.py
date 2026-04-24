@@ -13,13 +13,16 @@ import os
 import secrets
 import urllib.parse
 import urllib.request
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Query, Form
+from fastapi import BackgroundTasks, FastAPI, Request, Query, Form
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.executors.pool import ThreadPoolExecutor as APSThreadPool
 
 import database as db
 from auth import hash_password, verify_password, get_current_user
@@ -30,21 +33,77 @@ GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/au
 
 BASE_DIR = Path(__file__).parent
 
+_SECRET_FILE = BASE_DIR / ".session_secret"
+
 _SESSION_SECRET = os.getenv("SESSION_SECRET")
 if not _SESSION_SECRET:
-    _SESSION_SECRET = secrets.token_hex(32)
-    logging.warning(
-        "SESSION_SECRET не задан — используется случайный ключ. "
-        "Сессии сбросятся при перезапуске. Задайте SESSION_SECRET в окружении."
-    )
+    if _SECRET_FILE.exists():
+        _SESSION_SECRET = _SECRET_FILE.read_text().strip()
+    else:
+        _SESSION_SECRET = secrets.token_hex(32)
+        _SECRET_FILE.write_text(_SESSION_SECRET)
+        logging.info("SESSION_SECRET сгенерирован и сохранён в .session_secret")
 
-app = FastAPI(title="PC Parts Aggregator")
+# ------------------------------------------------------------------ #
+# Scheduler — автоматический запуск парсеров по расписанию            #
+# ------------------------------------------------------------------ #
+
+_scheduler = BackgroundScheduler(
+    executors={"default": APSThreadPool(max_workers=1)},
+    job_defaults={"coalesce": True, "max_instances": 1},
+)
+
+# Расписание: (job_id, алиасы парсеров, интервал в часах)
+_SCHEDULE = [
+    ("job_mvideo",      ["mvideo-all"],      4),
+    ("job_wb",          ["wb-all"],          6),
+    ("job_regard",      ["regard-all"],      6),
+    ("job_oldi",        ["oldi-all"],        6),
+    ("job_e2e4",        ["e2e4-all"],        6),
+    ("job_citilink",    ["citilink-all"],    12),
+    ("job_eldorado",    ["eldorado-all"],    12),
+    ("job_key",         ["key-all"],         8),
+]
+
+
+def _make_job(parser_keys: list):
+    """Возвращает callable для APScheduler."""
+    def _job():
+        from main import run_parsers, _ALL_ALIASES
+        expanded = []
+        for k in parser_keys:
+            expanded.extend(_ALL_ALIASES.get(k, [k]))
+        try:
+            run_parsers(expanded)
+        except Exception as e:
+            logging.error(f"Scheduler error for {parser_keys}: {e}")
+    return _job
+
+
+@asynccontextmanager
+async def lifespan(app_: FastAPI):
+    # Startup
+    db.init_db()
+    from datetime import datetime, timedelta
+    for job_id, keys, hours in _SCHEDULE:
+        first_run = datetime.now() + timedelta(hours=hours)
+        _scheduler.add_job(
+            _make_job(keys), "interval", hours=hours,
+            id=job_id, replace_existing=True,
+            next_run_time=first_run,
+        )
+    _scheduler.start()
+    logging.info("Scheduler запущен. Следующие запуски: %s",
+                 {j.id: str(j.next_run_time) for j in _scheduler.get_jobs()})
+    yield
+    # Shutdown
+    _scheduler.shutdown(wait=False)
+
+
+app = FastAPI(title="PC Parts Aggregator", lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=_SESSION_SECRET)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-
-# Инициализируем БД при старте
-db.init_db()
 
 
 def render(request, name, context=None):
@@ -82,6 +141,32 @@ async def pricing_page(request: Request):
     return render(request, "pricing.html")
 
 
+CATEGORY_LABELS = {
+    "GPU":    "Видеокарты",
+    "CPU":    "Процессоры",
+    "MB":     "Материнские платы",
+    "RAM":    "Оперативная память",
+    "SSD":    "SSD накопители",
+    "HDD":    "Жёсткие диски",
+    "PSU":    "Блоки питания",
+    "CASE":   "Корпуса",
+    "COOLER": "Кулеры",
+}
+
+# Метка для дропдауна моделей/чипов по категории
+_CHIP_LABEL = {
+    "GPU":    "Все GPU",
+    "CPU":    "Все процессоры",
+    "MB":     "Все чипсеты",
+    "RAM":    "Все типы RAM",
+    "SSD":    "Все типы SSD",
+    "HDD":    "Все типы HDD",
+    "PSU":    "Все блоки",
+    "CASE":   "Все корпуса",
+    "COOLER": "Все кулеры",
+}
+
+
 @app.get("/search", response_class=HTMLResponse)
 async def search(
     request: Request,
@@ -89,17 +174,21 @@ async def search(
     brand: str = Query(default=None),
     chip: str = Query(default=None),
     source: str = Query(default=None),
+    category: str = Query(default=None),
 ):
     sources = [source] if source else None
-    results = db.search_products(query=q, brand=brand, chip=chip, sources=sources)
-    filters = db.get_filter_options()
+    results = db.search_products(query=q, brand=brand, chip=chip, sources=sources, category=category)
+    filters = db.get_filter_options(category=category)
     return render(request, "search_results.html", {
         "query": q,
         "brand": brand,
         "chip": chip,
         "source": source,
+        "category": category,
         "results": results,
         "filters": filters,
+        "category_labels": CATEGORY_LABELS,
+        "chip_label": _CHIP_LABEL.get(category, "Все GPU"),
     })
 
 
@@ -349,6 +438,35 @@ async def auth_google_callback(request: Request, code: str = None, error: str = 
 
     request.session["user_id"] = user_id
     return RedirectResponse(url="/", status_code=302)
+
+
+# ------------------------------------------------------------------ #
+# Аудит парсеров                                                       #
+# ------------------------------------------------------------------ #
+
+@app.get("/audit", response_class=HTMLResponse)
+async def audit_page(request: Request):
+    summary = db.get_audit_summary()
+    runs = db.get_parse_runs(limit=50)
+    return render(request, "audit.html", {"summary": summary, "runs": runs})
+
+
+@app.post("/api/run-parser")
+async def run_parser_manual(request: Request,
+                             background_tasks: BackgroundTasks,
+                             parser_key: str = Form(...)):
+    from main import PARSERS, _ALL_ALIASES
+    if parser_key not in PARSERS and parser_key not in _ALL_ALIASES:
+        return JSONResponse({"error": "Unknown parser key"}, status_code=400)
+    background_tasks.add_task(_make_job([parser_key]))
+    return JSONResponse({"status": "queued", "parser_key": parser_key})
+
+
+@app.get("/api/scheduler/status")
+async def scheduler_status():
+    jobs = [{"id": j.id, "next_run": str(j.next_run_time)}
+            for j in _scheduler.get_jobs()]
+    return JSONResponse({"running": _scheduler.running, "jobs": jobs})
 
 
 if __name__ == "__main__":
