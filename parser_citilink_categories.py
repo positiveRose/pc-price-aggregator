@@ -15,7 +15,7 @@ CITILINK_CATEGORIES = {
     "HDD":    "https://www.citilink.ru/catalog/zhestkie-diski/",
     "PSU":    "https://www.citilink.ru/catalog/bloki-pitaniya/",
     "CASE":   "https://www.citilink.ru/catalog/korpusa/",
-    "COOLER": "https://www.citilink.ru/catalog/kulery-dlya-processora/",
+    "COOLER": "https://www.citilink.ru/catalog/sistemy-ohlazhdeniya-processora/",
 }
 
 

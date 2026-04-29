@@ -7,16 +7,19 @@
     python web_app.py
 """
 
+import collections
 import json
 import logging
 import os
+import re
 import secrets
+import time
 import urllib.parse
 import urllib.request
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, Request, Query, Form
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Query, Form
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -26,6 +29,57 @@ from apscheduler.executors.pool import ThreadPoolExecutor as APSThreadPool
 
 import database as db
 from auth import hash_password, verify_password, get_current_user
+
+_EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]{2,}$')
+
+# ------------------------------------------------------------------ #
+# CSRF helpers                                                         #
+# ------------------------------------------------------------------ #
+
+def _csrf_token(request: Request) -> str:
+    """Return (and lazily create) the CSRF token stored in the session."""
+    token = request.session.get("csrf_token")
+    if not token:
+        token = secrets.token_hex(32)
+        request.session["csrf_token"] = token
+    return token
+
+
+def _check_csrf(request: Request, token: str) -> None:
+    expected = request.session.get("csrf_token")
+    if not expected or not secrets.compare_digest(expected, token or ""):
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+
+
+# ------------------------------------------------------------------ #
+# Rate limiters                                                        #
+# ------------------------------------------------------------------ #
+
+class _RateLimiter:
+    def __init__(self, max_calls: int, period: float):
+        self._max = max_calls
+        self._period = period
+        self._hits: dict = collections.defaultdict(list)
+
+    def is_allowed(self, key: str) -> bool:
+        now = time.time()
+        self._hits[key] = [t for t in self._hits[key] if now - t < self._period]
+        if len(self._hits[key]) >= self._max:
+            return False
+        self._hits[key].append(now)
+        return True
+
+
+_login_limiter = _RateLimiter(5, 300)     # 5 attempts per 5 min per IP
+_register_limiter = _RateLimiter(3, 3600)  # 3 registrations per hour per IP
+
+
+def _client_ip(request: Request) -> str:
+    xff = request.headers.get("X-Forwarded-For")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
@@ -59,10 +113,11 @@ _SCHEDULE = [
     ("job_wb",          ["wb-all"],          6),
     ("job_regard",      ["regard-all"],      6),
     ("job_oldi",        ["oldi-all"],        6),
-    ("job_e2e4",        ["e2e4-all"],        6),
     ("job_citilink",    ["citilink-all"],    12),
     ("job_eldorado",    ["eldorado-all"],    12),
     ("job_key",         ["key-all"],         8),
+    ("job_kns",         ["kns-all"],         6),
+    ("job_fcenter",     ["fcenter-all"],     12),
 ]
 
 
@@ -111,6 +166,7 @@ def render(request, name, context=None):
     ctx["user"] = get_current_user(request)
     ctx["cart_count"] = sum(i.get("qty", 0) for i in request.session.get("cart", []))
     ctx["google_enabled"] = bool(GOOGLE_CLIENT_ID)
+    ctx["csrf_token"] = _csrf_token(request)
     return templates.TemplateResponse(request=request, name=name, context=ctx)
 
 
@@ -133,7 +189,9 @@ def save_cart(request, cart):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return render(request, "index.html")
+    stats = db.get_stats()
+    store_counts = db.get_store_offer_counts()
+    return render(request, "index.html", {"stats": stats, "store_counts": store_counts})
 
 
 @app.get("/pricing", response_class=HTMLResponse)
@@ -218,9 +276,14 @@ async def register_submit(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
+    csrf_token: str = Form(default=""),
 ):
+    _check_csrf(request, csrf_token)
+    ip = _client_ip(request)
+    if not _register_limiter.is_allowed(ip):
+        return render(request, "register.html", {"error": "Слишком много попыток. Попробуйте позже."})
     email = email.strip().lower()
-    if not email or "@" not in email:
+    if not _EMAIL_RE.match(email):
         return render(request, "register.html", {"error": "Введите корректный email"})
     if len(password) < 6:
         return render(request, "register.html", {"error": "Пароль минимум 6 символов"})
@@ -243,7 +306,12 @@ async def login_submit(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
+    csrf_token: str = Form(default=""),
 ):
+    _check_csrf(request, csrf_token)
+    ip = _client_ip(request)
+    if not _login_limiter.is_allowed(ip):
+        return render(request, "login.html", {"error": "Слишком много попыток. Подождите 5 минут."})
     email = email.strip().lower()
     user = db.get_user_by_email(email)
     if not user or not verify_password(password, user["password"]):
@@ -272,7 +340,9 @@ async def profile_page(request: Request):
 async def profile_update(
     request: Request,
     username: str = Form(default=""),
+    csrf_token: str = Form(default=""),
 ):
+    _check_csrf(request, csrf_token)
     if not request.session.get("user_id"):
         return RedirectResponse(url="/login", status_code=302)
     user = get_current_user(request)
@@ -281,7 +351,8 @@ async def profile_update(
 
 
 @app.post("/profile/delete")
-async def profile_delete(request: Request):
+async def profile_delete(request: Request, csrf_token: str = Form(default="")):
+    _check_csrf(request, csrf_token)
     if not request.session.get("user_id"):
         return RedirectResponse(url="/login", status_code=302)
     user = get_current_user(request)
@@ -324,7 +395,9 @@ async def cart_add(
     request: Request,
     product_id: int = Form(...),
     back: str = Form(default="/"),
+    csrf_token: str = Form(default=""),
 ):
+    _check_csrf(request, csrf_token)
     cart = get_cart(request)
     for item in cart:
         if item["product_id"] == product_id:
@@ -337,7 +410,12 @@ async def cart_add(
 
 
 @app.post("/cart/remove")
-async def cart_remove(request: Request, product_id: int = Form(...)):
+async def cart_remove(
+    request: Request,
+    product_id: int = Form(...),
+    csrf_token: str = Form(default=""),
+):
+    _check_csrf(request, csrf_token)
     cart = [i for i in get_cart(request) if i["product_id"] != product_id]
     save_cart(request, cart)
     return RedirectResponse(url="/cart", status_code=302)
@@ -348,7 +426,9 @@ async def cart_qty(
     request: Request,
     product_id: int = Form(...),
     action: str = Form(...),
+    csrf_token: str = Form(default=""),
 ):
+    _check_csrf(request, csrf_token)
     cart = get_cart(request)
     if action not in ("inc", "dec"):
         return RedirectResponse(url="/cart", status_code=302)
@@ -364,7 +444,8 @@ async def cart_qty(
 
 
 @app.post("/cart/clear")
-async def cart_clear(request: Request):
+async def cart_clear(request: Request, csrf_token: str = Form(default="")):
+    _check_csrf(request, csrf_token)
     save_cart(request, [])
     return RedirectResponse(url="/cart", status_code=302)
 
@@ -375,6 +456,8 @@ async def cart_clear(request: Request):
 async def auth_google(request: Request, link: int = 0):
     if not GOOGLE_CLIENT_ID:
         return RedirectResponse(url="/profile", status_code=302)
+    state = secrets.token_hex(16)
+    request.session["oauth_state"] = state
     request.session["google_action"] = "link" if link else "login"
     params = urllib.parse.urlencode({
         "client_id": GOOGLE_CLIENT_ID,
@@ -382,13 +465,20 @@ async def auth_google(request: Request, link: int = 0):
         "response_type": "code",
         "scope": "openid email profile",
         "access_type": "offline",
+        "state": state,
     })
     return RedirectResponse(url=f"https://accounts.google.com/o/oauth2/v2/auth?{params}")
 
 
 @app.get("/auth/google/callback")
-async def auth_google_callback(request: Request, code: str = None, error: str = None):
-    if error or not code:
+async def auth_google_callback(
+    request: Request,
+    code: str = None,
+    error: str = None,
+    state: str = None,
+):
+    expected_state = request.session.pop("oauth_state", None)
+    if error or not code or not expected_state or not secrets.compare_digest(expected_state, state or ""):
         return RedirectResponse(url="/login?error=google", status_code=302)
 
     # Обмен code на токен

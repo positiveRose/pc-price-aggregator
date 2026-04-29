@@ -91,6 +91,7 @@
                 </div>
                 {% endfor %}
                 <form method="post" action="/cart/add" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="product_id" value="{{ group.product.id }}">
                     <input type="hidden" name="back" value="{{ request.url }}">
                     <button type="submit" class="btn-cart-sm">+ В корзину</button>

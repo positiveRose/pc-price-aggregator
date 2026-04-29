@@ -1,33 +1,31 @@
 """
 Парсеры Wildberries для всех категорий комплектующих ПК.
 
-GPU использует menu_redirect_131994 (подтверждённый ID категории).
-Остальные категории используют точные текстовые запросы — WB exactmatch
-возвращает товары, где все слова запроса присутствуют в названии/категории.
-
-Если найдёшь правильные menu_redirect ID для других категорий
-(DevTools → Network на странице категории WB), замени запросы.
+Использует catalog.wb.ru с точными category/subject ID из меню WB
+(main-menu-ru-ru-v3.json) — это исключает шум из текстового поиска
+(ноутбучные CPU/RAM и т.д.).
 """
 
 from parser_wb import WbParser
 
 WB_CATEGORIES = {
-    "GPU":    "menu_redirect_131994 видеокарты",
-    "CPU":    "процессор",
-    "MB":     "материнская плата",
-    "RAM":    "оперативная память",
-    "SSD":    "SSD накопитель",
-    "HDD":    "жёсткий диск внутренний",
-    "PSU":    "блок питания ATX",
-    "CASE":   "корпус компьютерный ATX",
-    "COOLER": "кулер для процессора",
+    "GPU":    {"shard": "electronic73", "query": "subject=3274"},
+    "CPU":    {"shard": "electronic71", "query": "subject=3698"},
+    "MB":     {"shard": "electronic72", "query": "subject=3690"},
+    "RAM":    {"shard": "electronic72", "query": "subject=3357"},
+    "SSD":    {"shard": "electronic72", "query": "cat=131997"},
+    "HDD":    {"shard": "electronic73", "query": "cat=132000"},
+    "PSU":    {"shard": "electronic72", "query": "subject=8994"},
+    "CASE":   {"shard": "electronic72", "query": "subject=4066"},
+    "COOLER": {"shard": "electronic72", "query": "cat=132001"},
 }
 
 
-def _make_parser(category, query):
+def _make_parser(category, cfg):
     class _Parser(WbParser):
         SOURCE_NAME = "wb"
-        SEARCH_QUERY = query
+        CATALOG_SHARD = cfg["shard"]
+        CATALOG_QUERY = cfg["query"]
         _CATEGORY = category
 
         def run(self):
@@ -42,6 +40,6 @@ def _make_parser(category, query):
 
 
 CATEGORY_PARSERS = {
-    f"wb-{cat.lower()}": _make_parser(cat, query)
-    for cat, query in WB_CATEGORIES.items()
+    f"wb-{cat.lower()}": _make_parser(cat, cfg)
+    for cat, cfg in WB_CATEGORIES.items()
 }

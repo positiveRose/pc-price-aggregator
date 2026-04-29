@@ -38,6 +38,7 @@
                     <h2>Основные данные</h2>
                 </div>
                 <form method="post" action="/profile" class="profile-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <div class="field-group">
                         <label class="form-label">Email</label>
                         <div class="input-wrapper">

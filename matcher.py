@@ -347,8 +347,14 @@ def run_matching():
 
         products = [dict(r) for r in rows]
 
-        # Очищаем старые результаты матчинга
-        conn.execute("UPDATE products SET canonical_id = NULL")
+        # Очищаем старые результаты матчинга только для товаров с офферами
+        if products:
+            placeholders = ",".join("?" * len(products))
+            ids = [p["id"] for p in products]
+            conn.execute(
+                f"UPDATE products SET canonical_id = NULL WHERE id IN ({placeholders})",
+                ids,
+            )
 
         # Обновляем brand/model из названий для GPU
         for p in products:

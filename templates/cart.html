@@ -32,12 +32,14 @@
                     <td>
                         <div class="qty-controls">
                             <form method="post" action="/cart/qty" style="display:inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                 <input type="hidden" name="product_id" value="{{ item.product_id }}">
                                 <input type="hidden" name="action" value="dec">
                                 <button type="submit" class="qty-btn">−</button>
                             </form>
                             <span class="qty-value">{{ item.qty }}</span>
                             <form method="post" action="/cart/qty" style="display:inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                 <input type="hidden" name="product_id" value="{{ item.product_id }}">
                                 <input type="hidden" name="action" value="inc">
                                 <button type="submit" class="qty-btn">+</button>
@@ -47,6 +49,7 @@
                     <td class="price">{{ "{:,}".format(item.subtotal).replace(",", " ") }} р.</td>
                     <td>
                         <form method="post" action="/cart/remove">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                             <input type="hidden" name="product_id" value="{{ item.product_id }}">
                             <button type="submit" class="btn-remove" title="Удалить">×</button>
                         </form>
@@ -64,6 +67,7 @@
         <div class="cart-actions">
             <a href="/search" class="btn btn-outline">Продолжить покупки</a>
             <form method="post" action="/cart/clear" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button type="submit" class="btn btn-danger">Очистить корзину</button>
             </form>
         </div>

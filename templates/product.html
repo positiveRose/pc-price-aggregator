@@ -20,6 +20,7 @@
 
     <div style="margin-bottom: 1.5rem;">
         <form method="post" action="/cart/add">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="product_id" value="{{ product.id }}">
             <input type="hidden" name="back" value="/product/{{ product.slug or product.id }}">
             <button type="submit" class="btn btn-cart">+ В корзину</button>

@@ -314,6 +314,8 @@ a:hover {
 .source-nix       { background: #1a3a3a; color: #40e0d0; }
 .source-wb        { background: #3a1a2a; color: #ff69b4; }
 .source-ozon      { background: #1a1a3a; color: #6699ff; }
+.source-kns       { background: #1a2e1a; color: #66cc66; }
+.source-fcenter   { background: #2e1a2e; color: #cc88ff; }
 
 
 .store-link {
@@ -1224,6 +1226,40 @@ a:hover {
     color: var(--text-muted);
     margin-bottom: 1.2rem;
     line-height: 1.5;
+}
+
+/* Сетка магазинов на главной */
+.stores-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+.store-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1.2rem 1rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    text-decoration: none;
+    transition: border-color 0.2s, transform 0.15s;
+    text-align: center;
+}
+.store-card:hover {
+    border-color: rgba(155,89,182,0.5);
+    transform: translateY(-2px);
+}
+.store-card-name {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.store-card-count {
+    font-size: 0.78rem;
+    color: var(--text-muted);
 }
 
 .logout-card {

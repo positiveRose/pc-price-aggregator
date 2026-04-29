@@ -44,11 +44,42 @@ def _query_word_matches(query_word: str, name_tokens: list) -> bool:
     return False
 
 
+def _fts_tokens(name: str) -> str:
+    """Возвращает строку токенов для FTS5-индекса."""
+    return " ".join(_name_tokens(name))
+
+
+def _build_fts_query(query: str) -> str | None:
+    """Переводит поисковый запрос в FTS5 MATCH-выражение.
+
+    Для длинных буквенных слов (≥6 символов) использует стем [:-2]
+    чтобы находить русские склонения: 'видеокарту' → 'видеокар*'.
+    """
+    terms = []
+    for word in re.findall(r"[а-яёa-z0-9]+", query.lower()):
+        if len(word) >= 6 and word.isalpha():
+            terms.append(word[:-2] + "*")
+        else:
+            terms.append(word + "*")
+    return " ".join(terms) if terms else None
+
+
+_TRANSLIT_MAP = {
+    'а': 'a',  'б': 'b',  'в': 'v',  'г': 'g',  'д': 'd',
+    'е': 'e',  'ё': 'yo', 'ж': 'zh', 'з': 'z',  'и': 'i',
+    'й': 'y',  'к': 'k',  'л': 'l',  'м': 'm',  'н': 'n',
+    'о': 'o',  'п': 'p',  'р': 'r',  'с': 's',  'т': 't',
+    'у': 'u',  'ф': 'f',  'х': 'kh', 'ц': 'ts', 'ч': 'ch',
+    'ш': 'sh', 'щ': 'shch', 'ъ': '', 'ы': 'y',  'ь': '',
+    'э': 'e',  'ю': 'yu', 'я': 'ya',
+}
+
+
 def _make_slug(name: str) -> str:
-    """Генерирует URL-slug из названия товара."""
+    """Генерирует URL-slug из названия товара (с транслитерацией кириллицы)."""
     s = name.lower()
-    s = re.sub(r'[^\x00-\x7f]', ' ', s)   # кириллицу → пробел
-    s = re.sub(r'[^a-z0-9\s]', ' ', s)     # спецсимволы → пробел
+    s = ''.join(_TRANSLIT_MAP.get(c, c) for c in s)
+    s = re.sub(r'[^a-z0-9\s]', ' ', s)
     s = re.sub(r'\s+', '-', s.strip())
     s = re.sub(r'-+', '-', s)
     return s.strip('-')[:80]
@@ -232,6 +263,10 @@ def save_products(products, source):
                         (item["name"], item.get("category", "GPU"), slug),
                     )
                     product_id = cur.lastrowid
+                    conn.execute(
+                        "INSERT INTO products_fts(rowid, tokens) VALUES (?, ?)",
+                        (product_id, _fts_tokens(item["name"])),
+                    )
 
                 # Создаём предложение
                 cur = conn.execute(
@@ -359,6 +394,19 @@ def migrate_db():
         "WHERE status='running'"
     )
     conn.commit()
+
+    # FTS5 индекс для полнотекстового поиска
+    if "products_fts" not in tables:
+        conn.execute("CREATE VIRTUAL TABLE products_fts USING fts5(tokens)")
+        conn.commit()
+    fts_count = conn.execute("SELECT COUNT(*) FROM products_fts").fetchone()[0]
+    if fts_count == 0:
+        rows = conn.execute("SELECT id, name FROM products").fetchall()
+        conn.executemany(
+            "INSERT INTO products_fts(rowid, tokens) VALUES (?, ?)",
+            [(r["id"], _fts_tokens(r["name"])) for r in rows],
+        )
+        conn.commit()
 
     conn.close()
 
@@ -507,17 +555,14 @@ def search_products(query=None, brand=None, chip=None, sources=None, category=No
         if chip:
             sql += " AND (p.model LIKE ? OR p.name LIKE ?)"
             params.extend([f"%{chip}%", f"%{chip}%"])
+        if query:
+            fts_expr = _build_fts_query(query)
+            if fts_expr:
+                sql += " AND p.id IN (SELECT rowid FROM products_fts WHERE tokens MATCH ?)"
+                params.append(fts_expr)
 
         sql += " ORDER BY p.name"
         products = [dict(r) for r in conn.execute(sql, params).fetchall()]
-
-        if query:
-            query_words = query.lower().split()
-            products = [
-                p for p in products
-                if all(_query_word_matches(qw, _name_tokens(p["name"]))
-                       for qw in query_words)
-            ]
 
         # Группируем по canonical_id
         groups = {}
@@ -739,6 +784,18 @@ def get_stats():
             "min_price": min_price,
             "max_price": max_price,
         }
+    finally:
+        conn.close()
+
+
+def get_store_offer_counts() -> dict:
+    """Возвращает {source: offer_count} для магазинов с данными."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT source, COUNT(*) as cnt FROM offers WHERE in_stock=1 GROUP BY source ORDER BY cnt DESC"
+        ).fetchall()
+        return {r["source"]: r["cnt"] for r in rows}
     finally:
         conn.close()
 

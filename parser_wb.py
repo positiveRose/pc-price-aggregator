@@ -11,6 +11,10 @@ import requests
 
 from base_parser import BaseParser, get_requests_proxies
 
+# Минимальный интервал между запросами к WB API (любыми категориями в процессе)
+_LAST_RUN_TIME: float = 0.0
+_MIN_INTERVAL: float = 65.0  # секунд
+
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -29,10 +33,17 @@ _SEARCH_URL = (
     "&appType=1&curr=rub&dest=12358283&sort=popular&spp=30"
 )
 
+_CATALOG_URL = (
+    "https://catalog.wb.ru/catalog/{shard}/v4/catalog"
+    "?{query}&appType=1&curr=rub&dest=12358283&page={page}&sort=popular&spp=30"
+)
+
 
 class WbParser(BaseParser):
     SOURCE_NAME = "wb"
-    SEARCH_QUERY = "видеокарта"   # переопределяется в категорийных парсерах
+    SEARCH_QUERY = "видеокарта"   # используется только если CATALOG_SHARD не задан
+    CATALOG_SHARD = None          # shard для catalog.wb.ru, например "electronic73"
+    CATALOG_QUERY = None          # параметр фильтра, например "subject=3274"
     CATALOG_URL = ""              # не используется, только для совместимости
     BASE_URL = "https://www.wildberries.ru"
     CARD_SELECTOR = ""
@@ -42,6 +53,14 @@ class WbParser(BaseParser):
     MIN_FEEDBACKS = 5        # Минимум отзывов (прокси продаж: 5 отзывов ≈ 50+ продаж)
 
     def run(self):
+        global _LAST_RUN_TIME
+        elapsed = time.time() - _LAST_RUN_TIME
+        if _LAST_RUN_TIME > 0 and elapsed < _MIN_INTERVAL:
+            wait = _MIN_INTERVAL - elapsed
+            print(f"[{self.SOURCE_NAME}] Пауза {wait:.0f}с между категориями...")
+            time.sleep(wait)
+        _LAST_RUN_TIME = time.time()
+
         session = requests.Session()
         session.headers.update(_HEADERS)
         proxies = get_requests_proxies()
@@ -52,11 +71,19 @@ class WbParser(BaseParser):
         seen_ids = set()
 
         for page_num in range(1, self.MAX_PAGES + 1):
-            url = _SEARCH_URL.format(
-                query=requests.utils.quote(self.SEARCH_QUERY),
-                page=page_num,
-            )
-            print(f"[{self.SOURCE_NAME}] Страница {page_num}: {self.SEARCH_QUERY!r}")
+            if self.CATALOG_SHARD and self.CATALOG_QUERY:
+                url = _CATALOG_URL.format(
+                    shard=self.CATALOG_SHARD,
+                    query=self.CATALOG_QUERY,
+                    page=page_num,
+                )
+                print(f"[{self.SOURCE_NAME}] Страница {page_num}: {self.CATALOG_QUERY}")
+            else:
+                url = _SEARCH_URL.format(
+                    query=requests.utils.quote(self.SEARCH_QUERY),
+                    page=page_num,
+                )
+                print(f"[{self.SOURCE_NAME}] Страница {page_num}: {self.SEARCH_QUERY!r}")
 
             try:
                 r = session.get(url, timeout=(10, 40))
@@ -76,7 +103,12 @@ class WbParser(BaseParser):
                 print(f"[{self.SOURCE_NAME}] Стр. {page_num}: {e}")
                 break
 
-            products_raw = data.get("products") or []
+            # catalog API: data.products; search API: products
+            products_raw = (
+                data.get("data", {}).get("products")
+                or data.get("products")
+                or []
+            )
             if not products_raw:
                 print(f"[{self.SOURCE_NAME}] Стр. {page_num}: товаров нет — стоп")
                 break

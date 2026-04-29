@@ -28,5 +28,31 @@
         <a href="/search?q=RTX+3060" class="btn btn-outline">RTX 3060</a>
         <a href="/search?q=GT+1030" class="btn btn-outline">GT 1030</a>
     </div>
+
+    {% if store_counts %}
+    <h2 class="page-title">Магазины</h2>
+    <div class="stores-grid">
+        {% set store_labels = {
+            'citilink':  'Ситилинк',
+            'regard':    'Регард',
+            'oldi':      'OLDI',
+            'mvideo':    'МВидео',
+            'eldorado':  'Эльдорадо',
+            'wb':        'Wildberries',
+            'kns':       'KNS',
+            'fcenter':   'FCenter',
+            'nix':       'NIX',
+            'ozon':      'Ozon',
+            'dns':       'DNS'
+        } %}
+        {% for source, count in store_counts.items() %}
+        <a href="/search?source={{ source }}" class="store-card">
+            <span class="source-badge source-{{ source }}">{{ source }}</span>
+            <div class="store-card-name">{{ store_labels.get(source, source) }}</div>
+            <div class="store-card-count">{{ count }} предложений</div>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
 </div>
 {% endblock %}

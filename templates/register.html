@@ -9,6 +9,7 @@
     <div class="auth-error">{{ error }}</div>
     {% endif %}
     <form method="post" action="/register" class="auth-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="email" name="email" placeholder="Email" required class="search-input">
         <div class="password-wrap">
             <input type="password" name="password" id="password-register" placeholder="Пароль (мин. 6 символов)" required class="search-input">

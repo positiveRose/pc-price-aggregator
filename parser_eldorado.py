@@ -30,7 +30,18 @@ class EldoradoParser(BaseParser):
     BASE_URL = "https://www.eldorado.ru"
     CARD_SELECTOR = ""  # данные в __NEXT_DATA__ (SSR), ждать карточки не нужно
     WAIT_TIMEOUT = 25000
-    DELAY_BETWEEN_PAGES = 5
+    DELAY_BETWEEN_PAGES = 12  # Эльдорадо требует ~10 сек для рендера __NEXT_DATA__
+
+    def _load_page(self, page, url):
+        """Переопределяем: используем networkidle чтобы дождаться JS-рендера __NEXT_DATA__."""
+        print(f"[{self.SOURCE_NAME}] Загружаю: {url}")
+        try:
+            page.goto(url, wait_until="networkidle", timeout=60000)
+        except Exception:
+            pass
+        import time as _time
+        _time.sleep(self.DELAY_BETWEEN_PAGES)
+        return page.content()
 
     def parse_products(self, html):
         products = self._parse_next_data(html)
@@ -104,6 +115,11 @@ class EldoradoParser(BaseParser):
         if not isinstance(name, str) or len(name) < 5:
             return None
 
+        # Фильтруем подписки и нетоварные объекты
+        name_lower = name.lower()
+        if any(kw in name_lower for kw in ("месяц", "подписк", "кинотеатр", "premier")):
+            return None
+
         price = self._extract_price(obj)
         if not price:
             return None
@@ -114,7 +130,7 @@ class EldoradoParser(BaseParser):
             "id":       pid_str,
             "name":     name,
             "price":    price,
-            "url":      f"{self.BASE_URL}/cat/{code}/",
+            "url":      f"{self.BASE_URL}/cat/detail/{code}/",
             "in_stock": True,
         }
 
@@ -159,7 +175,7 @@ class EldoradoParser(BaseParser):
             "id":       pid,
             "name":     name,
             "price":    price,
-            "url":      f"{self.BASE_URL}/cat/{code}/",
+            "url":      f"{self.BASE_URL}/cat/detail/{code}/",
             "in_stock": True,
         }
 

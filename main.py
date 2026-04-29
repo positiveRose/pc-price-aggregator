@@ -1,16 +1,15 @@
 """
 Итерация 9: Агрегатор цен — 17 магазинов → SQLite → веб-интерфейс.
 
-Магазины: Ситилинк, Регард, DNS, OLDI, e2e4, МВидео, Эльдорадо, NIX,
+Магазины: Ситилинк, Регард, DNS, OLDI, МВидео, Эльдорадо, NIX,
           WB, Ozon, МегаМаркет, КЕЙ, Онлайн Трейд, Технопарк, Нотик,
-          Ultra, RBT
+          Ultra, RBT, KNS, FCenter
 
 Запуск:
     python main.py                     — парсить все магазины
     python main.py citilink            — только Ситилинк (GPU)
     python main.py regard              — только Регард (GPU)
     python main.py oldi                — все категории OLDI
-    python main.py e2e4                — все категории e2e4
     python main.py mvideo              — все категории МВидео
     python main.py eldorado            — все категории Эльдорадо
     python main.py nix                 — все категории NIX.ru
@@ -39,7 +38,6 @@ from database import _name_tokens, _query_word_matches
 from parser_citilink import CitilinkParser
 from parser_citilink_categories import CATEGORY_PARSERS as CITILINK_PARSERS
 from parser_dns import DnsParser
-from parser_e2e4_categories import CATEGORY_PARSERS as E2E4_PARSERS
 from parser_eldorado_categories import CATEGORY_PARSERS as ELDORADO_PARSERS
 from parser_mvideo_categories import CATEGORY_PARSERS as MVIDEO_PARSERS
 from parser_nix_categories import CATEGORY_PARSERS as NIX_PARSERS
@@ -55,6 +53,8 @@ from parser_technopark_categories import CATEGORY_PARSERS as TECHNOPARK_PARSERS
 from parser_notik_categories import CATEGORY_PARSERS as NOTIK_PARSERS
 from parser_ultra_categories import CATEGORY_PARSERS as ULTRA_PARSERS
 from parser_rbt_categories import CATEGORY_PARSERS as RBT_PARSERS
+from parser_kns_categories import CATEGORY_PARSERS as KNS_PARSERS
+from parser_fcenter_categories import CATEGORY_PARSERS as FCENTER_PARSERS
 
 
 def filter_by_query(items, query):
@@ -84,7 +84,6 @@ PARSERS = {
     **CITILINK_PARSERS,
     **REGARD_PARSERS,
     **OLDI_PARSERS,
-    **E2E4_PARSERS,
     **MVIDEO_PARSERS,
     **ELDORADO_PARSERS,
     **NIX_PARSERS,
@@ -97,6 +96,8 @@ PARSERS = {
     **NOTIK_PARSERS,
     **ULTRA_PARSERS,
     **RBT_PARSERS,
+    **KNS_PARSERS,
+    **FCENTER_PARSERS,
 }
 
 # Алиасы для запуска всех категорий конкретного магазина
@@ -104,7 +105,6 @@ _ALL_ALIASES = {
     "citilink-all": list(CITILINK_PARSERS.keys()),
     "regard-all":   list(REGARD_PARSERS.keys()),
     "oldi-all":     list(OLDI_PARSERS.keys()),
-    "e2e4-all":     list(E2E4_PARSERS.keys()),
     "mvideo-all":   list(MVIDEO_PARSERS.keys()),
     "eldorado-all": list(ELDORADO_PARSERS.keys()),
     "nix-all":      list(NIX_PARSERS.keys()),
@@ -117,6 +117,8 @@ _ALL_ALIASES = {
     "notik-all":       list(NOTIK_PARSERS.keys()),
     "ultra-all":       list(ULTRA_PARSERS.keys()),
     "rbt-all":         list(RBT_PARSERS.keys()),
+    "kns-all":         list(KNS_PARSERS.keys()),
+    "fcenter-all":     list(FCENTER_PARSERS.keys()),
 }
 
 
@@ -127,7 +129,45 @@ def run_parsers(sources=None, max_pages=None):
 
     all_products = {}
 
+    # Эльдорадо использует Group-IB защиту — все его категории запускаем
+    # в одной браузерной сессии, чтобы JS-challenge прошёл один раз.
+    eldorado_keys = [k for k in sources if k in ELDORADO_PARSERS]
+    if eldorado_keys:
+        from parser_eldorado_categories import run_all_categories
+        run_ids = {}
+        for key in eldorado_keys:
+            parser_cls = ELDORADO_PARSERS[key]
+            source = getattr(parser_cls, "SOURCE_NAME", "eldorado")
+            category = getattr(parser_cls, "_CATEGORY", None)
+            run_ids[key] = db.start_parse_run(key, source, category)
+
+        try:
+            eldorado_results = run_all_categories(eldorado_keys)
+        except Exception as e:
+            print(f"[eldorado] ОШИБКА run_all_categories: {e}")
+            eldorado_results = {k: [] for k in eldorado_keys}
+
+        for key in eldorado_keys:
+            parser_cls = ELDORADO_PARSERS[key]
+            source = getattr(parser_cls, "SOURCE_NAME", "eldorado")
+            products = eldorado_results.get(key, [])
+            all_products[key] = products
+            run_id = run_ids.get(key)
+            try:
+                saved, updated = db.save_products(products, source)
+                present_ids = [str(p["id"]) for p in products]
+                db.mark_missing_as_out_of_stock(source, present_ids)
+                db.finish_parse_run(run_id, "ok", len(products), saved, updated, None)
+                print(f"[{key}] Сохранено: {saved} новых, {updated} обновлено")
+            except Exception as e:
+                if run_id:
+                    db.finish_parse_run(run_id, "error", 0, 0, 0, error_msg=str(e))
+                print(f"[{key}] ОШИБКА при сохранении: {e}")
+
     for name in sources:
+        if name in ELDORADO_PARSERS:
+            continue  # уже обработан выше
+
         parser_cls = PARSERS.get(name)
         if not parser_cls:
             print(f"Неизвестный источник: {name}")
@@ -292,8 +332,9 @@ def main():
         elif (arg.lower() in PARSERS
               or arg.lower() in _ALL_ALIASES
               or arg.lower() in (
-                  "oldi", "e2e4", "mvideo", "eldorado", "nix", "wb", "ozon",
+                  "oldi", "mvideo", "eldorado", "nix", "wb", "ozon",
                   "megamarket", "key", "onlinetrade", "technopark", "notik", "ultra", "rbt",
+                  "kns", "fcenter",
               )):
             sources.append(arg.lower())
         else:
@@ -309,7 +350,6 @@ def main():
     # Короткие имена магазинов → все их категории
     _SHOP_TO_PARSERS = {
         "oldi":     list(OLDI_PARSERS.keys()),
-        "e2e4":     list(E2E4_PARSERS.keys()),
         "mvideo":   list(MVIDEO_PARSERS.keys()),
         "eldorado": list(ELDORADO_PARSERS.keys()),
         "nix":      list(NIX_PARSERS.keys()),
@@ -322,6 +362,8 @@ def main():
         "notik":       list(NOTIK_PARSERS.keys()),
         "ultra":       list(ULTRA_PARSERS.keys()),
         "rbt":         list(RBT_PARSERS.keys()),
+        "kns":         list(KNS_PARSERS.keys()),
+        "fcenter":     list(FCENTER_PARSERS.keys()),
     }
     for shop, keys in _SHOP_TO_PARSERS.items():
         if shop in sources:

@@ -16,31 +16,6 @@ import requests
 
 from base_parser import BaseParser
 
-_SESSION = None
-
-
-def _get_session():
-    global _SESSION
-    if _SESSION is None:
-        s = requests.Session()
-        s.headers.update({
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36"
-            ),
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8",
-            "Referer": "https://www.mvideo.ru/",
-        })
-        # Инициализируем сессию: получаем куки с главной страницы
-        try:
-            s.get("https://www.mvideo.ru/", timeout=20)
-        except Exception:
-            pass
-        _SESSION = s
-    return _SESSION
-
 
 class MvideoParser(BaseParser):
     SOURCE_NAME = "mvideo"
@@ -49,6 +24,30 @@ class MvideoParser(BaseParser):
     CARD_SELECTOR = ""   # не используется
     PAGE_LIMIT = 36
     DELAY_BETWEEN_PAGES = 2
+
+    def __init__(self):
+        self._session = None
+
+    def _get_session(self):
+        """Создаёт новую сессию для каждого экземпляра парсера."""
+        if self._session is None:
+            s = requests.Session()
+            s.headers.update({
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8",
+                "Referer": "https://www.mvideo.ru/",
+            })
+            try:
+                s.get("https://www.mvideo.ru/", timeout=20)
+            except Exception:
+                pass
+            self._session = s
+        return self._session
 
     # ------------------------------------------------------------------ #
     # Точка входа                                                         #
@@ -79,15 +78,22 @@ class MvideoParser(BaseParser):
 
         products = []
         for pid in product_ids:
-            name  = details.get(pid)
+            info  = details.get(pid)
             price = prices.get(pid)
-            if not name or not price:
+            if not info or not price:
                 continue
+            name       = info["name"]
+            translit   = info["translit"]
+            url = (
+                f"{self.BASE_URL}/products/{translit}-{pid}"
+                if translit
+                else f"{self.BASE_URL}/products/{pid}"
+            )
             products.append({
                 "id":       pid,
                 "name":     name,
                 "price":    price,
-                "url":      f"{self.BASE_URL}/product/{pid}",
+                "url":      url,
                 "in_stock": True,
             })
 
@@ -99,7 +105,7 @@ class MvideoParser(BaseParser):
     # ------------------------------------------------------------------ #
 
     def _fetch_all_ids(self, category_id):
-        s = _get_session()
+        s = self._get_session()
         # Посещаем страницу категории — сайт может требовать cookies с неё
         try:
             s.get(self.CATALOG_URL, timeout=20)
@@ -162,7 +168,7 @@ class MvideoParser(BaseParser):
     # ------------------------------------------------------------------ #
 
     def _fetch_details(self, product_ids):
-        s = _get_session()
+        s = self._get_session()
         url = "https://www.mvideo.ru/bff/product-details/list"
         details = {}
         batch_size = 24
@@ -175,12 +181,13 @@ class MvideoParser(BaseParser):
                 data = resp.json()
 
                 for item in data.get("body", {}).get("products", []):
-                    pid   = str(item.get("productId") or item.get("id") or "")
-                    brand = item.get("brandName") or ""
-                    name  = item.get("name") or item.get("title") or ""
-                    full  = f"{brand} {name}".strip() if brand else name
+                    pid      = str(item.get("productId") or item.get("id") or "")
+                    brand    = item.get("brandName") or ""
+                    name     = item.get("name") or item.get("title") or ""
+                    full     = f"{brand} {name}".strip() if brand else name
+                    translit = item.get("nameTranslit") or ""
                     if pid and full:
-                        details[pid] = full
+                        details[pid] = {"name": full, "translit": translit}
 
                 time.sleep(1)
             except Exception as e:
@@ -193,7 +200,7 @@ class MvideoParser(BaseParser):
     # ------------------------------------------------------------------ #
 
     def _fetch_prices(self, product_ids):
-        s = _get_session()
+        s = self._get_session()
         url = "https://www.mvideo.ru/bff/products/prices"
         prices = {}
         batch_size = 24
