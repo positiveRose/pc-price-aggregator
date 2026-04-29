@@ -172,21 +172,31 @@ def init_db():
     migrate_db()
 
 
-def mark_missing_as_out_of_stock(source: str, present_ids: list):
+def mark_missing_as_out_of_stock(source: str, present_ids: list, category: str = None):
     """
     Помечает как in_stock=0 все офферы этого source,
     которых нет в списке present_ids (товары исчезли со страницы каталога).
+    Если передана category — затрагивает только офферы товаров этой категории,
+    что важно для магазинов с раздельным парсингом по категориям (WB и др.).
     """
     if not present_ids:
         return
     conn = get_connection()
     try:
         placeholders = ",".join("?" * len(present_ids))
-        conn.execute(
-            f"UPDATE offers SET in_stock=0 "
-            f"WHERE source=? AND in_stock=1 AND source_id NOT IN ({placeholders})",
-            [source] + list(present_ids),
-        )
+        if category:
+            conn.execute(
+                f"UPDATE offers SET in_stock=0 "
+                f"WHERE source=? AND in_stock=1 AND source_id NOT IN ({placeholders})"
+                f" AND product_id IN (SELECT id FROM products WHERE category=?)",
+                [source] + list(present_ids) + [category],
+            )
+        else:
+            conn.execute(
+                f"UPDATE offers SET in_stock=0 "
+                f"WHERE source=? AND in_stock=1 AND source_id NOT IN ({placeholders})",
+                [source] + list(present_ids),
+            )
         conn.commit()
     finally:
         conn.close()
