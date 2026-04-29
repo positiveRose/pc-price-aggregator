@@ -75,7 +75,7 @@ def filter_by_query(items, query):
 # Все доступные парсеры
 # citilink          — только GPU (обратная совместимость)
 # citilink-gpu/cpu/mb/ram/ssd/hdd/psu/case/cooler — конкретная категория
-# citilink-all / regard-all / oldi-all / e2e4-all / mvideo-all /
+# citilink-all / regard-all / oldi-all / mvideo-all /
 # eldorado-all / nix-all / wb-all / ozon-all — все категории магазина
 PARSERS = {
     "citilink": CitilinkParser,
