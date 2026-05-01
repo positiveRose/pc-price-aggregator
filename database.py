@@ -7,12 +7,15 @@
 - price_history — история изменения цен
 """
 
+import os
 import re
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "prices.db"
+# Путь к базе. На Railway задаётся через DB_PATH=/data/prices.db (Volume).
+# Локально — рядом с проектом.
+DB_PATH = Path(os.environ.get("DB_PATH", str(Path(__file__).parent / "prices.db")))
 
 
 def _name_tokens(name: str) -> list:
