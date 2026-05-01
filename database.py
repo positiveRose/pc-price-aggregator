@@ -418,6 +418,13 @@ def migrate_db():
         )
         conn.commit()
 
+    # Исправляем Mvideo URLs: /product/{id} → /products/{id} (singular → plural)
+    conn.execute(
+        "UPDATE offers SET url = REPLACE(url, 'mvideo.ru/product/', 'mvideo.ru/products/') "
+        "WHERE source = 'mvideo' AND url LIKE '%mvideo.ru/product/%'"
+    )
+    conn.commit()
+
     conn.close()
 
 
