@@ -32,6 +32,7 @@
 """
 
 import sys
+import time
 
 import database as db
 from database import _name_tokens, _query_word_matches
@@ -166,6 +167,8 @@ def run_parsers(sources=None, max_pages=None):
                     db.finish_parse_run(run_id, "error", 0, 0, 0, error_msg=str(e))
                 print(f"[{key}] ОШИБКА при сохранении: {e}")
 
+    _last_source_seen = {}  # source → время последнего запуска категории
+
     for name in sources:
         if name in ELDORADO_PARSERS:
             continue  # уже обработан выше
@@ -177,6 +180,17 @@ def run_parsers(sources=None, max_pages=None):
 
         source = getattr(parser_cls, "SOURCE_NAME", None) or name
         category = getattr(parser_cls, "_CATEGORY", None)
+
+        # Задержка между категориями одного магазина (защита от бана)
+        _INTER_CATEGORY_DELAY = 90  # секунд
+        if source in _last_source_seen:
+            elapsed = time.time() - _last_source_seen[source]
+            if elapsed < _INTER_CATEGORY_DELAY:
+                wait = _INTER_CATEGORY_DELAY - elapsed
+                print(f"[{name}] Пауза {wait:.0f}с между категориями {source}...")
+                time.sleep(wait)
+        _last_source_seen[source] = time.time()
+
         run_id = None
         try:
             run_id = db.start_parse_run(name, source, category)
