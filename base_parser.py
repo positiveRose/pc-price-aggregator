@@ -111,6 +111,23 @@ PARSER_PROXY: str | None = (
     os.getenv("PARSER_PROXY")
     or (_PROXY_FILE.read_text().strip() if _PROXY_FILE.exists() else None)
 )
+
+# Если прокси не задан — пробуем запустить Tor (доступен на Railway через nixpacks)
+if not PARSER_PROXY:
+    import shutil, subprocess
+    if shutil.which("tor"):
+        try:
+            subprocess.Popen(
+                ["tor", "--SocksPort", "9050", "--DataDirectory", "/tmp/tor"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            import time as _t; _t.sleep(5)  # ждём пока Tor поднимется
+            PARSER_PROXY = "socks5://127.0.0.1:9050"
+            print("[proxy] Tor запущен автоматически: socks5://127.0.0.1:9050")
+        except Exception as _e:
+            print(f"[proxy] Tor недоступен: {_e}")
+
 if PARSER_PROXY:
     print(f"[proxy] Используется прокси: {PARSER_PROXY}")
 

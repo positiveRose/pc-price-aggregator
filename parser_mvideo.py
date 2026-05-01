@@ -39,13 +39,21 @@ class MvideoParser(BaseParser):
                     "Chrome/131.0.0.0 Safari/537.36"
                 ),
                 "Accept": "application/json, text/plain, */*",
-                "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8",
+                "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Origin": "https://www.mvideo.ru",
                 "Referer": "https://www.mvideo.ru/",
+                "x-client-name": "ru.mvideo.product-detail-page",
+                "x-client-version": "2.0.0",
+                "x-app-version": "1.0.0",
             })
-            try:
-                s.get("https://www.mvideo.ru/", timeout=20)
-            except Exception:
-                pass
+            # Прогрев: получаем cookies с главной и страницы категории
+            for url in ("https://www.mvideo.ru/", self.CATALOG_URL):
+                try:
+                    s.get(url, timeout=20)
+                    time.sleep(1)
+                except Exception:
+                    pass
             self._session = s
         return self._session
 
@@ -176,7 +184,17 @@ class MvideoParser(BaseParser):
         for i in range(0, len(product_ids), batch_size):
             batch = product_ids[i:i + batch_size]
             try:
-                resp = s.post(url, json={"productIds": batch}, timeout=30)
+                resp = None
+                for wait in (0, 15, 30):
+                    if wait:
+                        print(f"[{self.SOURCE_NAME}] details batch {i}: ждём {wait}с перед retry...")
+                        time.sleep(wait)
+                    resp = s.post(url, json={"productIds": batch}, timeout=30)
+                    if resp.status_code != 403:
+                        break
+                    # Сбрасываем сессию при 403 — пересоздаём cookies
+                    self._session = None
+                    s = self._get_session()
                 resp.raise_for_status()
                 data = resp.json()
 
