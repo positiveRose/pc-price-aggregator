@@ -137,7 +137,17 @@ def _make_job(parser_keys: list):
 
 @asynccontextmanager
 async def lifespan(app_: FastAPI):
-    # Startup
+    # Startup — устанавливаем браузеры Playwright если ещё не установлены
+    import subprocess, sys
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium", "--with-deps"],
+            capture_output=True, text=True, timeout=300,
+        )
+        logging.info("playwright install: %s", result.stdout[-500:] or result.stderr[-500:])
+    except Exception as e:
+        logging.warning("playwright install failed: %s", e)
+
     db.init_db()
     from datetime import datetime, timedelta
     for job_id, keys, hours in _SCHEDULE:
