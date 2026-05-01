@@ -181,7 +181,12 @@ class BaseParser(ABC):
     def _load_page(self, page, url):
         """Загружает страницу и ждёт появления карточек."""
         print(f"[{self.SOURCE_NAME}] Загружаю: {url}")
-        page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=120000)
+        except Exception as e:
+            print(f"[{self.SOURCE_NAME}] goto timeout/error на {url}: {e}")
+            # Ждём ещё и пробуем взять что уже загрузилось
+            time.sleep(5)
 
         if self.CARD_SELECTOR:
             try:

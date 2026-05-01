@@ -150,8 +150,9 @@ async def lifespan(app_: FastAPI):
 
     db.init_db()
     from datetime import datetime, timedelta
-    for job_id, keys, hours in _SCHEDULE:
-        first_run = datetime.now() + timedelta(minutes=2)
+    for idx, (job_id, keys, hours) in enumerate(_SCHEDULE):
+        # Разносим старт джобов: каждый следующий стартует на 15 мин позже
+        first_run = datetime.now() + timedelta(minutes=5 + idx * 15)
         _scheduler.add_job(
             _make_job(keys), "interval", hours=hours,
             id=job_id, replace_existing=True,

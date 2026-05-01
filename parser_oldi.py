@@ -20,8 +20,8 @@ class OldiParser(BaseParser):
     CATALOG_URL = "https://www.oldi.ru/catalog/videokarta/"
     BASE_URL = "https://www.oldi.ru"
     CARD_SELECTOR = 'a[href*="/catalog/element/"]'
-    WAIT_TIMEOUT = 20000
-    DELAY_BETWEEN_PAGES = 3
+    WAIT_TIMEOUT = 45000
+    DELAY_BETWEEN_PAGES = 5
 
     def parse_products(self, html):
         soup = BeautifulSoup(html, "lxml")
