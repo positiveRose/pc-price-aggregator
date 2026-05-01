@@ -112,22 +112,6 @@ PARSER_PROXY: str | None = (
     or (_PROXY_FILE.read_text().strip() if _PROXY_FILE.exists() else None)
 )
 
-# Если прокси не задан — пробуем запустить Tor (доступен на Railway через nixpacks)
-if not PARSER_PROXY:
-    import shutil, subprocess
-    if shutil.which("tor"):
-        try:
-            subprocess.Popen(
-                ["tor", "--SocksPort", "9050", "--DataDirectory", "/tmp/tor"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            import time as _t; _t.sleep(5)  # ждём пока Tor поднимется
-            PARSER_PROXY = "socks5://127.0.0.1:9050"
-            print("[proxy] Tor запущен автоматически: socks5://127.0.0.1:9050")
-        except Exception as _e:
-            print(f"[proxy] Tor недоступен: {_e}")
-
 if PARSER_PROXY:
     print(f"[proxy] Используется прокси: {PARSER_PROXY}")
 
@@ -207,8 +191,10 @@ class BaseParser(ABC):
                 )
                 time.sleep(2)
             except Exception:
-                print(f"[{self.SOURCE_NAME}] Карточки не появились, жду ещё...")
-                time.sleep(10)
+                html_preview = page.content()[:500].replace("\n", " ")
+                print(f"[{self.SOURCE_NAME}] Карточки не появились на {url}")
+                print(f"[{self.SOURCE_NAME}] HTML preview: {html_preview}")
+                time.sleep(5)
         else:
             time.sleep(self.DELAY_BETWEEN_PAGES)
 
