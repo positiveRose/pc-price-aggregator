@@ -150,13 +150,15 @@ def run_parsers(sources=None, max_pages=None):
         for key in eldorado_keys:
             parser_cls = ELDORADO_PARSERS[key]
             source = getattr(parser_cls, "SOURCE_NAME", "eldorado")
+            category = getattr(parser_cls, "_CATEGORY", None)
             products = eldorado_results.get(key, [])
             all_products[key] = products
             run_id = run_ids.get(key)
             try:
                 saved, updated = db.save_products(products, source)
-                present_ids = [str(p["id"]) for p in products]
-                db.mark_missing_as_out_of_stock(source, present_ids)
+                if products:
+                    present_ids = [str(p["id"]) for p in products]
+                    db.mark_missing_as_out_of_stock(source, present_ids, category=category)
                 db.finish_parse_run(run_id, "ok", len(products), saved, updated, None)
                 print(f"[{key}] Сохранено: {saved} новых, {updated} обновлено")
             except Exception as e:
@@ -186,8 +188,9 @@ def run_parsers(sources=None, max_pages=None):
 
             # Сохраняем в базу — используем SOURCE_NAME парсера, не ключ словаря
             saved, updated = db.save_products(products, source)
-            present_ids = [str(p["id"]) for p in products]
-            db.mark_missing_as_out_of_stock(source, present_ids, category=category)
+            if products:
+                present_ids = [str(p["id"]) for p in products]
+                db.mark_missing_as_out_of_stock(source, present_ids, category=category)
             expected = getattr(parser, "_last_total", None)
             db.finish_parse_run(run_id, "ok", len(products), saved, updated, expected)
             print(f"[{name}] Сохранено: {saved} новых, {updated} обновлено")

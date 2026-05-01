@@ -15,7 +15,9 @@ REGARD_CATEGORIES = {
     "HDD":    "https://www.regard.ru/catalog/1014/zhestkie-diski",
     "PSU":    "https://www.regard.ru/catalog/1225/bloki-pitaniya",
     "CASE":   "https://www.regard.ru/catalog/1032/korpusa",
-    "COOLER": "https://www.regard.ru/catalog/1003/sistemy-okhlazhdeniya",
+    # 1003 = хаб-страница категорий (Card_wrap=0, товаров нет)
+    # 1008 = жидкостное охлаждение — реальный листинг с Card_wrap ✓
+    "COOLER": "https://www.regard.ru/catalog/1008/zidkostnoe-oxlazdenie-szo",
 }
 
 

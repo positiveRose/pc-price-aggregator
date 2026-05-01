@@ -14,6 +14,7 @@ class CitilinkParser(BaseParser):
     CATALOG_URL = "https://www.citilink.ru/catalog/videokarty/"
     BASE_URL = "https://www.citilink.ru"
     CARD_SELECTOR = '[data-meta-name="ProductVerticalSnippet"]'
+    _CATEGORY = "GPU"
 
     def parse_products(self, html):
         soup = BeautifulSoup(html, "lxml")

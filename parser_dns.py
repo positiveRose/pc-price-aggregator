@@ -21,6 +21,7 @@ class DnsParser(BaseParser):
     CATALOG_URL = "https://www.dns-shop.ru/catalog/17a89aab16404e77/videokarty/"
     BASE_URL = "https://www.dns-shop.ru"
     CARD_SELECTOR = "div.catalog-product"
+    _CATEGORY = "GPU"
     BROWSER = "firefox"
 
     def parse_products(self, html):

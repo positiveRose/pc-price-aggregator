@@ -240,11 +240,11 @@ def save_products(products, source):
 
             if existing:
                 old_price = existing["price"]
-                # Обновляем предложение
+                # Обновляем предложение (включая URL — формат ссылок может меняться)
                 conn.execute(
-                    "UPDATE offers SET price=?, in_stock=?, updated_at=? "
+                    "UPDATE offers SET price=?, in_stock=?, url=?, updated_at=? "
                     "WHERE id=?",
-                    (item["price"], int(item["in_stock"]), now, existing["id"]),
+                    (item["price"], int(item["in_stock"]), item["url"], now, existing["id"]),
                 )
                 # Если цена изменилась — записываем в историю
                 if old_price != item["price"]:

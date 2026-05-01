@@ -21,6 +21,7 @@ class RegardParser(BaseParser):
     CATALOG_URL = "https://www.regard.ru/catalog/1013/videokarty"
     BASE_URL = "https://www.regard.ru"
     CARD_SELECTOR = "div[class^='Card_wrap']"
+    _CATEGORY = "GPU"
 
     def parse_products(self, html):
         soup = BeautifulSoup(html, "lxml")
