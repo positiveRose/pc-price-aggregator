@@ -70,7 +70,7 @@ def run_all_categories(keys=None):
     results = {k: [] for k in keys}
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, args=_CHROMIUM_ARGS)
+        browser = p.chromium.launch(headless=True, args=_CHROMIUM_ARGS)
         ctx_opts = {
             "viewport": {"width": 1920, "height": 1080},
             "locale": "ru-RU",
