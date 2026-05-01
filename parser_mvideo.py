@@ -40,7 +40,6 @@ class MvideoParser(BaseParser):
                 ),
                 "Accept": "application/json, text/plain, */*",
                 "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Accept-Encoding": "gzip, deflate, br",
                 "Origin": "https://www.mvideo.ru",
                 "Referer": "https://www.mvideo.ru/",
                 "x-client-name": "ru.mvideo.product-detail-page",
@@ -136,6 +135,7 @@ class MvideoParser(BaseParser):
                 "context":     "",
             }
             resp = s.get(url, params=params, timeout=30)
+            print(f"[{self.SOURCE_NAME}] listing status={resp.status_code} len={len(resp.content)}")
             resp.raise_for_status()
             data = resp.json()
 

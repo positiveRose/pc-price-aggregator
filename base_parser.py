@@ -191,10 +191,15 @@ class BaseParser(ABC):
                 )
                 time.sleep(2)
             except Exception:
-                html_preview = page.content()[:500].replace("\n", " ")
-                print(f"[{self.SOURCE_NAME}] Карточки не появились на {url}")
-                print(f"[{self.SOURCE_NAME}] HTML preview: {html_preview}")
-                time.sleep(5)
+                # Ждём ещё — WAF мог не успеть сделать редирект
+                time.sleep(10)
+                try:
+                    page.wait_for_selector(self.CARD_SELECTOR, timeout=30000)
+                    time.sleep(2)
+                except Exception:
+                    html_preview = page.content()[:300].replace("\n", " ")
+                    print(f"[{self.SOURCE_NAME}] Карточки не появились на {url}")
+                    print(f"[{self.SOURCE_NAME}] HTML preview: {html_preview}")
         else:
             time.sleep(self.DELAY_BETWEEN_PAGES)
 
