@@ -19,12 +19,13 @@ CITILINK_CATEGORIES = {
 }
 
 
-def _make_parser(category, url, wait_timeout=15000):
+def _make_parser(category, url, wait_timeout=45000):
     """Создаёт класс парсера для конкретной категории Ситилинк."""
     class _Parser(CitilinkParser):
         SOURCE_NAME = "citilink"
         CATALOG_URL = url
         WAIT_TIMEOUT = wait_timeout
+        DELAY_BETWEEN_PAGES = 5
         _CATEGORY = category
 
         def parse_products(self, html):
@@ -41,9 +42,6 @@ def _make_parser(category, url, wait_timeout=15000):
 # Словарь: ключ для CLI → класс парсера
 # Пример: "citilink-cpu", "citilink-ram", "citilink-all" (все сразу)
 CATEGORY_PARSERS = {
-    f"citilink-{cat.lower()}": _make_parser(
-        cat, url,
-        wait_timeout=30000 if cat == "COOLER" else 15000
-    )
+    f"citilink-{cat.lower()}": _make_parser(cat, url)
     for cat, url in CITILINK_CATEGORIES.items()
 }

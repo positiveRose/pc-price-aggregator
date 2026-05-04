@@ -25,6 +25,8 @@ def _make_parser(category, url):
     class _Parser(RegardParser):
         SOURCE_NAME = "regard"
         CATALOG_URL = url
+        WAIT_TIMEOUT = 45000
+        DELAY_BETWEEN_PAGES = 5
         _CATEGORY = category
 
         def parse_products(self, html):

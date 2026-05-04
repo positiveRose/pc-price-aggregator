@@ -205,6 +205,12 @@ class BaseParser(ABC):
                     html_preview = page.content()[:300].replace("\n", " ")
                     print(f"[{self.SOURCE_NAME}] Карточки не появились на {url}")
                     print(f"[{self.SOURCE_NAME}] HTML preview: {html_preview}")
+
+            # Скроллим вниз чтобы подгрузить все карточки (lazy loading)
+            for _ in range(10):
+                page.evaluate("window.scrollBy(0, 800)")
+                time.sleep(0.4)
+            time.sleep(1)
         else:
             time.sleep(self.DELAY_BETWEEN_PAGES)
 
