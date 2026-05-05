@@ -100,6 +100,7 @@ def run_parsers(sources=None, max_pages=None):
             category = getattr(parser_cls, "_CATEGORY", None)
             run_ids[key] = db.start_parse_run(key, source, category)
 
+        print(f"[eldorado] Вызываю run_all_categories для {eldorado_keys}", flush=True)
         try:
             eldorado_results = run_all_categories(eldorado_keys)
         except Exception as e:
@@ -111,6 +112,9 @@ def run_parsers(sources=None, max_pages=None):
             source = getattr(parser_cls, "SOURCE_NAME", "eldorado")
             category = getattr(parser_cls, "_CATEGORY", None)
             products = eldorado_results.get(key, [])
+            if category:
+                from base_parser import filter_by_category
+                products = filter_by_category(products, category)
             all_products[key] = products
             run_id = run_ids.get(key)
             try:
@@ -156,6 +160,9 @@ def run_parsers(sources=None, max_pages=None):
             if max_pages is not None:
                 parser.MAX_PAGES = max_pages
             products = parser.run()
+            if category:
+                from base_parser import filter_by_category
+                products = filter_by_category(products, category)
             all_products[name] = products
 
             # Сохраняем в базу — используем SOURCE_NAME парсера, не ключ словаря

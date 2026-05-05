@@ -66,11 +66,28 @@ class EldoradoParser(BaseParser):
         except (json.JSONDecodeError, ValueError):
             return []
 
-        # Стратегия А: глубокий поиск любых объектов похожих на товар
+        # Стратегия А: listing-module (точный список ID каталога) + products-store
+        init = data.get("props", {}).get("initialState", {})
+        listing_ids = init.get("listing-module", {}).get("productsIds", [])
+        products_store = init.get("products-store-module", {}).get("products", {})
+        if listing_ids and products_store:
+            found = {}
+            for pid in listing_ids:
+                pid_str = str(pid)
+                item = products_store.get(pid_str) or products_store.get(pid)
+                if not isinstance(item, dict):
+                    continue
+                product = self._try_parse_item(item) or self._item_to_product(item, pid_str)
+                if product:
+                    found[product["id"]] = product
+            if found:
+                return list(found.values())
+
+        # Стратегия Б: глубокий поиск во всём дереве (fallback)
         found = {}
         self._deep_collect(data, found, depth=0)
 
-        # Стратегия Б: старый Redux-формат {digit_key: product_dict}
+        # Стратегия В: старый Redux-формат {digit_key: product_dict}
         if not found:
             items_map = self._find_products_map(data)
             if items_map:
@@ -296,7 +313,7 @@ class EldoradoParser(BaseParser):
         soup = BeautifulSoup(html, "lxml")
         max_page = 1
 
-        # Ищем в __NEXT_DATA__: total и pageSize → вычисляем кол-во страниц
+        # Ищем в __NEXT_DATA__: listing-module.totalCount + limit
         m = re.search(
             r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>',
             html, re.DOTALL
@@ -304,13 +321,21 @@ class EldoradoParser(BaseParser):
         if m:
             try:
                 data = json.loads(m.group(1))
-                result = [None, None]
-                self._find_pagination_info(data, result)
-                total_items, page_size = result
+                listing = data.get("props", {}).get("initialState", {}).get("listing-module", {})
+                total_items = listing.get("totalCount")
+                page_size = listing.get("limit")
                 if total_items and page_size and page_size > 0:
                     max_page = max(max_page, math.ceil(total_items / page_size))
-                if total_items:
                     self._last_total = total_items
+                else:
+                    # Fallback: generic deep search
+                    result = [None, None]
+                    self._find_pagination_info(data, result)
+                    total_items, page_size = result
+                    if total_items and page_size and page_size > 0:
+                        max_page = max(max_page, math.ceil(total_items / page_size))
+                    if total_items:
+                        self._last_total = total_items
             except Exception:
                 pass
 

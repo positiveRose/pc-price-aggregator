@@ -83,8 +83,11 @@ def run_all_categories(keys=None):
 
     results = {k: [] for k in keys}
 
+    print(f"[eldorado] Запуск run_all_categories, категорий: {len(keys)}", flush=True)
     with sync_playwright() as p:
+        print("[eldorado] Запускаю Chromium...", flush=True)
         browser = p.chromium.launch(headless=True, args=_CHROMIUM_ARGS)
+        print("[eldorado] Chromium запущен.", flush=True)
         ctx_opts = {
             "viewport": {"width": 1920, "height": 1080},
             "locale": "ru-RU",

@@ -126,6 +126,37 @@ _CHROMIUM_ARGS = [
 ]
 
 
+# Ключевые слова для фильтрации нерелевантных товаров по категории.
+# Если название товара не содержит НИ ОДНОГО слова из списка — это не тот товар.
+_CATEGORY_KEYWORDS: dict[str, list[str]] = {
+    "GPU":    ["видеокарт", "geforce", "radeon", "rtx", "gtx", "arc a", "arc b", "intel arc"],
+    "CPU":    ["процессор", "ryzen", "core i3", "core i5", "core i7", "core i9",
+               "core ultra", "xeon", "athlon", "threadripper", "intel core"],
+    "MB":     ["материнск"],
+    "RAM":    ["dimm", "ddr3", "ddr4", "ddr5", "оперативн"],
+    "SSD":    ["ssd", "nvme", "твердотельн"],
+    "HDD":    ["hdd", "жёсткий диск", "жесткий диск"],
+    "PSU":    ["блок питания"],
+    "CASE":   ["корпус"],
+    "COOLER": ["кулер", "охлажден", "вентилятор"],
+}
+
+
+def filter_by_category(products: list, category: str) -> list:
+    """Удаляет товары, чьё название явно не соответствует категории."""
+    keywords = _CATEGORY_KEYWORDS.get(category)
+    if not keywords:
+        return products
+    filtered = []
+    for p in products:
+        name_lower = p.get("name", "").lower()
+        if any(kw in name_lower for kw in keywords):
+            filtered.append(p)
+        else:
+            print(f"[filter:{category}] Отфильтрован: {p.get('name', '')!r}")
+    return filtered
+
+
 def get_requests_proxies() -> dict | None:
     """Возвращает словарь proxies для requests.Session, или None."""
     if not PARSER_PROXY:
