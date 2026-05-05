@@ -1,0 +1,4 @@
+[deploy]
+startCommand = "python main.py --web"
+healthcheckPath = "/"
+healthcheckTimeout = 30

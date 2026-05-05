@@ -1,41 +1,28 @@
 """
 Парсер Wildberries (wildberries.ru) — комплектующие ПК.
 
-Использует поисковый API search.wb.ru напрямую (без Playwright).
-Цена берётся из sizes[0].price.product (копейки → рубли).
+Все запросы к catalog.wb.ru выполняются через Playwright (page.evaluate → fetch),
+чтобы браузер подставлял куки и заголовки, которых достаточно для обхода 403
+с датацентровых IP (Railway).
 """
 
 import time
 
-import requests
-
-from base_parser import BaseParser, get_requests_proxies
+from base_parser import BaseParser
 
 # Минимальный интервал между запросами к WB API (любыми категориями в процессе)
 _LAST_RUN_TIME: float = 0.0
 _MIN_INTERVAL: float = 65.0  # секунд
 
-_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0.0.0 Safari/537.36"
-    ),
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "ru-RU,ru;q=0.9",
-    "Origin": "https://www.wildberries.ru",
-    "Referer": "https://www.wildberries.ru/",
-}
+_CATALOG_URL_TPL = (
+    "https://catalog.wb.ru/catalog/{shard}/v4/catalog"
+    "?{query}&appType=1&curr=rub&dest=12358283&page={page}&sort=popular&spp=30"
+)
 
-_SEARCH_URL = (
+_SEARCH_URL_TPL = (
     "https://search.wb.ru/exactmatch/ru/common/v18/search"
     "?query={query}&resultset=catalog&limit=100&page={page}"
     "&appType=1&curr=rub&dest=12358283&sort=popular&spp=30"
-)
-
-_CATALOG_URL = (
-    "https://catalog.wb.ru/catalog/{shard}/v4/catalog"
-    "?{query}&appType=1&curr=rub&dest=12358283&page={page}&sort=popular&spp=30"
 )
 
 
@@ -44,13 +31,13 @@ class WbParser(BaseParser):
     SEARCH_QUERY = "видеокарта"   # используется только если CATALOG_SHARD не задан
     CATALOG_SHARD = None          # shard для catalog.wb.ru, например "electronic73"
     CATALOG_QUERY = None          # параметр фильтра, например "subject=3274"
-    CATALOG_URL = ""              # не используется, только для совместимости
+    CATALOG_URL = "https://www.wildberries.ru"
     BASE_URL = "https://www.wildberries.ru"
     CARD_SELECTOR = ""
     WAIT_TIMEOUT = 30000
     DELAY_BETWEEN_PAGES = 5
     MAX_PAGES = 10           # 10 стр × 100 товаров = 1000 макс на категорию
-    MIN_FEEDBACKS = 5        # Минимум отзывов (прокси продаж: 5 отзывов ≈ 50+ продаж)
+    MIN_FEEDBACKS = 5        # Минимум отзывов
 
     def run(self):
         global _LAST_RUN_TIME
@@ -61,63 +48,88 @@ class WbParser(BaseParser):
             time.sleep(wait)
         _LAST_RUN_TIME = time.time()
 
-        session = requests.Session()
-        session.headers.update(_HEADERS)
-        proxies = get_requests_proxies()
-        if proxies:
-            session.proxies.update(proxies)
+        return self._fetch_via_playwright()
+
+    def _fetch_via_playwright(self):
+        from playwright.sync_api import sync_playwright
 
         all_products = []
         seen_ids = set()
 
-        for page_num in range(1, self.MAX_PAGES + 1):
-            if self.CATALOG_SHARD and self.CATALOG_QUERY:
-                url = _CATALOG_URL.format(
-                    shard=self.CATALOG_SHARD,
-                    query=self.CATALOG_QUERY,
-                    page=page_num,
-                )
-                print(f"[{self.SOURCE_NAME}] Страница {page_num}: {self.CATALOG_QUERY}")
-            else:
-                url = _SEARCH_URL.format(
-                    query=requests.utils.quote(self.SEARCH_QUERY),
-                    page=page_num,
-                )
-                print(f"[{self.SOURCE_NAME}] Страница {page_num}: {self.SEARCH_QUERY!r}")
-
+        with sync_playwright() as p:
+            browser, page = self._create_browser(p)
             try:
-                r = session.get(url, timeout=(10, 40))
-                # Retry на 429 с нарастающей задержкой
-                for wait in (15, 30):
-                    if r.status_code != 429:
+                print(f"[{self.SOURCE_NAME}] Загружаю главную WB для получения куки...")
+                try:
+                    page.goto("https://www.wildberries.ru", wait_until="domcontentloaded", timeout=60000)
+                except Exception as e:
+                    print(f"[{self.SOURCE_NAME}] goto WB: {e}")
+                time.sleep(4)
+
+                for page_num in range(1, self.MAX_PAGES + 1):
+                    if self.CATALOG_SHARD and self.CATALOG_QUERY:
+                        api_url = _CATALOG_URL_TPL.format(
+                            shard=self.CATALOG_SHARD,
+                            query=self.CATALOG_QUERY,
+                            page=page_num,
+                        )
+                        label = self.CATALOG_QUERY
+                    else:
+                        import urllib.parse
+                        api_url = _SEARCH_URL_TPL.format(
+                            query=urllib.parse.quote(self.SEARCH_QUERY),
+                            page=page_num,
+                        )
+                        label = self.SEARCH_QUERY
+
+                    print(f"[{self.SOURCE_NAME}] Страница {page_num}: {label}")
+
+                    try:
+                        result = page.evaluate(
+                            """
+                            async (url) => {
+                                try {
+                                    const resp = await fetch(url, {
+                                        headers: {
+                                            'Accept': 'application/json, text/plain, */*',
+                                            'Accept-Language': 'ru-RU,ru;q=0.9',
+                                        }
+                                    });
+                                    if (!resp.ok) return {error: resp.status};
+                                    return await resp.json();
+                                } catch(e) {
+                                    return {error: String(e)};
+                                }
+                            }
+                            """,
+                            api_url,
+                        )
+                    except Exception as e:
+                        print(f"[{self.SOURCE_NAME}] Стр. {page_num}: {e}")
                         break
-                    print(f"[{self.SOURCE_NAME}] Rate limit — ждём {wait} сек")
-                    time.sleep(wait)
-                    r = session.get(url, timeout=(10, 40))
-                if r.status_code != 200 or not r.text:
-                    print(f"[{self.SOURCE_NAME}] Стр. {page_num}: статус {r.status_code} — стоп")
-                    break
 
-                data = r.json()
-            except Exception as e:
-                print(f"[{self.SOURCE_NAME}] Стр. {page_num}: {e}")
-                break
+                    if isinstance(result, dict) and result.get("error"):
+                        print(f"[{self.SOURCE_NAME}] Стр. {page_num}: ошибка {result['error']} — стоп")
+                        break
 
-            # catalog API: data.products; search API: products
-            products_raw = (
-                data.get("data", {}).get("products")
-                or data.get("products")
-                or []
-            )
-            if not products_raw:
-                print(f"[{self.SOURCE_NAME}] Стр. {page_num}: товаров нет — стоп")
-                break
+                    # catalog API: data.products; search API: products
+                    products_raw = (
+                        (result.get("data") or {}).get("products")
+                        or result.get("products")
+                        or []
+                    )
+                    if not products_raw:
+                        print(f"[{self.SOURCE_NAME}] Стр. {page_num}: товаров нет — стоп")
+                        break
 
-            parsed = self._parse_items(products_raw, seen_ids)
-            print(f"[{self.SOURCE_NAME}] Стр. {page_num}: {len(parsed)} товаров")
-            all_products.extend(parsed)
+                    parsed = self._parse_items(products_raw, seen_ids)
+                    print(f"[{self.SOURCE_NAME}] Стр. {page_num}: {len(parsed)} товаров")
+                    all_products.extend(parsed)
 
-            time.sleep(self.DELAY_BETWEEN_PAGES)
+                    time.sleep(self.DELAY_BETWEEN_PAGES)
+
+            finally:
+                browser.close()
 
         print(f"[{self.SOURCE_NAME}] Итого: {len(all_products)}")
         return all_products
@@ -131,7 +143,6 @@ class WbParser(BaseParser):
                     continue
                 seen_ids.add(pid)
 
-                # Фильтр по отзывам: убираем товары без реальных продаж
                 feedbacks = item.get("feedbacks") or 0
                 if feedbacks < self.MIN_FEEDBACKS:
                     continue

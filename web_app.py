@@ -103,7 +103,7 @@ if not _SESSION_SECRET:
 # ------------------------------------------------------------------ #
 
 _scheduler = BackgroundScheduler(
-    executors={"default": APSThreadPool(max_workers=4)},
+    executors={"default": APSThreadPool(max_workers=1)},
     job_defaults={"coalesce": True, "max_instances": 1},
 )
 
@@ -115,7 +115,7 @@ _SCHEDULE = [
     ("job_oldi",        ["oldi-all"],        6),
     ("job_citilink",    ["citilink-all"],    12),
     ("job_eldorado",    ["eldorado-all"],    12),
-    ("job_key",         ["key-all"],         8),
+
     ("job_kns",         ["kns-all"],         6),
     ("job_fcenter",     ["fcenter-all"],     12),
 ]

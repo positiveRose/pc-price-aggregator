@@ -22,6 +22,7 @@ class RegardParser(BaseParser):
     BASE_URL = "https://www.regard.ru"
     CARD_SELECTOR = "div[class^='Card_wrap']"
     _CATEGORY = "GPU"
+    BROWSER_RESTART_EVERY = 5
 
     def parse_products(self, html):
         soup = BeautifulSoup(html, "lxml")

@@ -1,9 +1,7 @@
 """
-Итерация 9: Агрегатор цен — 17 магазинов → SQLite → веб-интерфейс.
+Агрегатор цен — 8 магазинов → SQLite → веб-интерфейс.
 
-Магазины: Ситилинк, Регард, DNS, OLDI, МВидео, Эльдорадо, NIX,
-          WB, Ozon, МегаМаркет, КЕЙ, Онлайн Трейд, Технопарк, Нотик,
-          Ultra, RBT, KNS, FCenter
+Магазины: Ситилинк, Регард, OLDI, МВидео, Эльдорадо, WB, KNS, FCenter
 
 Запуск:
     python main.py                     — парсить все магазины
@@ -12,16 +10,9 @@
     python main.py oldi                — все категории OLDI
     python main.py mvideo              — все категории МВидео
     python main.py eldorado            — все категории Эльдорадо
-    python main.py nix                 — все категории NIX.ru
     python main.py wb                  — все категории Wildberries
-    python main.py ozon                — все категории Ozon
-    python main.py megamarket          — все категории МегаМаркет
-    python main.py key                 — все категории КЕЙ
-    python main.py onlinetrade         — все категории Онлайн Трейд
-    python main.py technopark          — все категории Технопарк
-    python main.py notik               — все категории Нотик
-    python main.py ultra               — все категории Ultra
-    python main.py rbt                 — все категории RBT
+    python main.py kns                 — все категории KNS
+    python main.py fcenter             — все категории FCenter
     python main.py citilink-all        — все категории Ситилинк
     python main.py regard-all          — все категории Регард
     python main.py --show              — показать сохранённые данные без парсинга
@@ -38,22 +29,12 @@ import database as db
 from database import _name_tokens, _query_word_matches
 from parser_citilink import CitilinkParser
 from parser_citilink_categories import CATEGORY_PARSERS as CITILINK_PARSERS
-from parser_dns import DnsParser
 from parser_eldorado_categories import CATEGORY_PARSERS as ELDORADO_PARSERS
 from parser_mvideo_categories import CATEGORY_PARSERS as MVIDEO_PARSERS
-from parser_nix_categories import CATEGORY_PARSERS as NIX_PARSERS
 from parser_oldi_categories import CATEGORY_PARSERS as OLDI_PARSERS
-from parser_ozon_categories import CATEGORY_PARSERS as OZON_PARSERS
 from parser_regard import RegardParser
 from parser_regard_categories import CATEGORY_PARSERS as REGARD_PARSERS
 from parser_wb_categories import CATEGORY_PARSERS as WB_PARSERS
-from parser_megamarket_categories import CATEGORY_PARSERS as MEGAMARKET_PARSERS
-from parser_key_categories import CATEGORY_PARSERS as KEY_PARSERS
-from parser_onlinetrade_categories import CATEGORY_PARSERS as ONLINETRADE_PARSERS
-from parser_technopark_categories import CATEGORY_PARSERS as TECHNOPARK_PARSERS
-from parser_notik_categories import CATEGORY_PARSERS as NOTIK_PARSERS
-from parser_ultra_categories import CATEGORY_PARSERS as ULTRA_PARSERS
-from parser_rbt_categories import CATEGORY_PARSERS as RBT_PARSERS
 from parser_kns_categories import CATEGORY_PARSERS as KNS_PARSERS
 from parser_fcenter_categories import CATEGORY_PARSERS as FCENTER_PARSERS
 
@@ -74,29 +55,15 @@ def filter_by_query(items, query):
 
 
 # Все доступные парсеры
-# citilink          — только GPU (обратная совместимость)
-# citilink-gpu/cpu/mb/ram/ssd/hdd/psu/case/cooler — конкретная категория
-# citilink-all / regard-all / oldi-all / mvideo-all /
-# eldorado-all / nix-all / wb-all / ozon-all — все категории магазина
 PARSERS = {
     "citilink": CitilinkParser,
     "regard":   RegardParser,
-    "dns":      DnsParser,
     **CITILINK_PARSERS,
     **REGARD_PARSERS,
     **OLDI_PARSERS,
     **MVIDEO_PARSERS,
     **ELDORADO_PARSERS,
-    **NIX_PARSERS,
     **WB_PARSERS,
-    **OZON_PARSERS,
-    **MEGAMARKET_PARSERS,
-    **KEY_PARSERS,
-    **ONLINETRADE_PARSERS,
-    **TECHNOPARK_PARSERS,
-    **NOTIK_PARSERS,
-    **ULTRA_PARSERS,
-    **RBT_PARSERS,
     **KNS_PARSERS,
     **FCENTER_PARSERS,
 }
@@ -108,18 +75,9 @@ _ALL_ALIASES = {
     "oldi-all":     list(OLDI_PARSERS.keys()),
     "mvideo-all":   list(MVIDEO_PARSERS.keys()),
     "eldorado-all": list(ELDORADO_PARSERS.keys()),
-    "nix-all":      list(NIX_PARSERS.keys()),
-    "wb-all":          list(WB_PARSERS.keys()),
-    "ozon-all":        list(OZON_PARSERS.keys()),
-    "megamarket-all":  list(MEGAMARKET_PARSERS.keys()),
-    "key-all":         list(KEY_PARSERS.keys()),
-    "onlinetrade-all": list(ONLINETRADE_PARSERS.keys()),
-    "technopark-all":  list(TECHNOPARK_PARSERS.keys()),
-    "notik-all":       list(NOTIK_PARSERS.keys()),
-    "ultra-all":       list(ULTRA_PARSERS.keys()),
-    "rbt-all":         list(RBT_PARSERS.keys()),
-    "kns-all":         list(KNS_PARSERS.keys()),
-    "fcenter-all":     list(FCENTER_PARSERS.keys()),
+    "wb-all":       list(WB_PARSERS.keys()),
+    "kns-all":      list(KNS_PARSERS.keys()),
+    "fcenter-all":  list(FCENTER_PARSERS.keys()),
 }
 
 
@@ -312,8 +270,10 @@ def main():
 
     # Режим веб-сервера
     if "--web" in args:
+        import os
         import uvicorn
-        uvicorn.run("web_app:app", host="localhost", port=8000, reload=True)
+        port = int(os.environ.get("PORT", 8000))
+        uvicorn.run("web_app:app", host="0.0.0.0", port=port, reload=False)
         return
 
     # Режим просмотра без парсинга
@@ -349,9 +309,7 @@ def main():
         elif (arg.lower() in PARSERS
               or arg.lower() in _ALL_ALIASES
               or arg.lower() in (
-                  "oldi", "mvideo", "eldorado", "nix", "wb", "ozon",
-                  "megamarket", "key", "onlinetrade", "technopark", "notik", "ultra", "rbt",
-                  "kns", "fcenter",
+                  "oldi", "mvideo", "eldorado", "wb", "kns", "fcenter",
               )):
             sources.append(arg.lower())
         else:
@@ -369,18 +327,9 @@ def main():
         "oldi":     list(OLDI_PARSERS.keys()),
         "mvideo":   list(MVIDEO_PARSERS.keys()),
         "eldorado": list(ELDORADO_PARSERS.keys()),
-        "nix":      list(NIX_PARSERS.keys()),
-        "wb":          list(WB_PARSERS.keys()),
-        "ozon":        list(OZON_PARSERS.keys()),
-        "megamarket":  list(MEGAMARKET_PARSERS.keys()),
-        "key":         list(KEY_PARSERS.keys()),
-        "onlinetrade": list(ONLINETRADE_PARSERS.keys()),
-        "technopark":  list(TECHNOPARK_PARSERS.keys()),
-        "notik":       list(NOTIK_PARSERS.keys()),
-        "ultra":       list(ULTRA_PARSERS.keys()),
-        "rbt":         list(RBT_PARSERS.keys()),
-        "kns":         list(KNS_PARSERS.keys()),
-        "fcenter":     list(FCENTER_PARSERS.keys()),
+        "wb":       list(WB_PARSERS.keys()),
+        "kns":      list(KNS_PARSERS.keys()),
+        "fcenter":  list(FCENTER_PARSERS.keys()),
     }
     for shop, keys in _SHOP_TO_PARSERS.items():
         if shop in sources:

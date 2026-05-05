@@ -216,6 +216,8 @@ class BaseParser(ABC):
 
         return page.content()
 
+    BROWSER_RESTART_EVERY = 10  # перезапускать браузер каждые N страниц
+
     def fetch_all_pages(self):
         """Загружает все страницы каталога, возвращает список HTML."""
         all_html = []
@@ -235,6 +237,12 @@ class BaseParser(ABC):
                 # Загружаем остальные страницы
                 for page_num in range(2, total + 1):
                     try:
+                        # Перезапускаем браузер каждые BROWSER_RESTART_EVERY страниц
+                        if (page_num - 1) % self.BROWSER_RESTART_EVERY == 0:
+                            print(f"[{self.SOURCE_NAME}] Перезапуск браузера перед стр. {page_num}...")
+                            browser.close()
+                            browser, page = self._create_browser(p)
+
                         time.sleep(self.DELAY_BETWEEN_PAGES)
                         url = self.get_page_url(page_num)
                         html = self._load_page(page, url)

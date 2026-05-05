@@ -126,7 +126,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS offers (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             product_id  INTEGER NOT NULL REFERENCES products(id),
-            source      TEXT NOT NULL,          -- 'citilink', 'regard', 'oldi', 'e2e4', 'mvideo', 'eldorado', 'dns'
+            source      TEXT NOT NULL,          -- 'citilink', 'regard', 'oldi', 'mvideo', 'eldorado', 'wb', 'kns', 'fcenter'
             source_id   TEXT,                   -- ID товара на площадке
             price       INTEGER NOT NULL,
             url         TEXT,
@@ -218,7 +218,7 @@ def save_products(products, source):
     Сохраняет список товаров в базу.
 
     Каждый товар — словарь с ключами: id, name, price, url, in_stock.
-    source — название магазина ('citilink', 'dns').
+    source — название магазина ('citilink', 'regard', 'oldi', 'mvideo', 'eldorado', 'wb', 'kns', 'fcenter').
 
     Логика:
     - Если товар (по source + source_id) уже есть — обновляем цену

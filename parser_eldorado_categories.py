@@ -16,6 +16,20 @@ from playwright_stealth import Stealth
 from base_parser import _CHROMIUM_ARGS, PARSER_PROXY
 from parser_eldorado import EldoradoParser
 
+
+def _goto_and_get_content(page, url, delay):
+    """Переходит на страницу и дожидается окончания навигации перед page.content()."""
+    try:
+        page.goto(url, wait_until="networkidle", timeout=60000)
+    except Exception:
+        # Если networkidle не дождались — ждём хотя бы domcontentloaded
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=30000)
+        except Exception:
+            pass
+    time.sleep(delay)
+    return page.content()
+
 ELDORADO_CATEGORIES = {
     "GPU":    "https://www.eldorado.ru/c/videokarty/",
     "CPU":    "https://www.eldorado.ru/c/protsessory/",
@@ -111,15 +125,24 @@ def run_all_categories(keys=None):
             url = parser_cls.CATALOG_URL
             print(f"[eldorado] Загружаю: {url}")
             try:
-                try:
-                    page.goto(url, wait_until="networkidle", timeout=60000)
-                except Exception:
-                    pass
-                time.sleep(parser_cls.DELAY_BETWEEN_PAGES)
-                html = page.content()
-                products = parser.parse_products(html)
-                print(f"[eldorado] Найдено товаров: {len(products)}")
-                results[key] = products
+                html = _goto_and_get_content(page, url, parser_cls.DELAY_BETWEEN_PAGES)
+                all_products = parser.parse_products(html)
+
+                total_pages = min(parser.get_total_pages(html), parser.MAX_PAGES)
+                print(f"[eldorado] Страниц: {total_pages}")
+
+                for page_num in range(2, total_pages + 1):
+                    page_url = parser.get_page_url(page_num)
+                    print(f"[eldorado] Загружаю стр. {page_num}: {page_url}")
+                    try:
+                        html = _goto_and_get_content(page, page_url, parser_cls.DELAY_BETWEEN_PAGES)
+                        products = parser.parse_products(html)
+                        all_products.extend(products)
+                    except Exception as e:
+                        print(f"[eldorado] Ошибка на стр. {page_num}: {e}")
+
+                print(f"[eldorado] Найдено товаров: {len(all_products)}")
+                results[key] = all_products
             except Exception as e:
                 print(f"[{key}] ОШИБКА: {e}")
 
