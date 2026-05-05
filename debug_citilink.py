@@ -1,5 +1,5 @@
 """
-Отладка парсера Ситилинк.
+Отладка парсера Ситилинк — полный прогон по всем страницам.
 Запуск: python debug_citilink.py
 """
 import time
@@ -8,12 +8,19 @@ from playwright_stealth import Stealth
 from bs4 import BeautifulSoup
 from parser_citilink import CitilinkParser
 
+CATEGORY = "GPU"
 URL = "https://www.citilink.ru/catalog/videokarty/"
 CARD_SELECTOR = '[data-meta-name="ProductVerticalSnippet"]'
+WAIT_TIMEOUT = 45000
+DELAY_BETWEEN_PAGES = 5
 
 print("=" * 60)
-print("ШАГ 1: Открываю браузер (видимый режим)...")
+print(f"Ситилинк дебаг — категория {CATEGORY}")
+print(f"URL: {URL}")
 print("=" * 60)
+
+parser = CitilinkParser()
+all_products = []
 
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=False)
@@ -29,62 +36,85 @@ with sync_playwright() as p:
     page = context.new_page()
     Stealth().apply_stealth_sync(page)
 
-    print(f"\nШАГ 2: Захожу на {URL}")
-    page.goto(URL, wait_until="domcontentloaded", timeout=60000)
-
-    print(f"\nШАГ 3: Жду карточки товаров...")
+    # ── Страница 1 ──────────────────────────────────────────────────
+    print(f"\n[Страница 1] Захожу: {URL}")
     try:
-        page.wait_for_selector(CARD_SELECTOR, timeout=15000)
-        print("  -> Карточки НАЙДЕНЫ на странице!")
+        page.goto(URL, wait_until="domcontentloaded", timeout=120000)
+    except Exception as e:
+        print(f"  goto() ошибка: {e}")
+
+    print(f"  Жду карточки (timeout={WAIT_TIMEOUT}ms)...")
+    try:
+        page.wait_for_selector(CARD_SELECTOR, timeout=WAIT_TIMEOUT)
+        print("  -> Карточки НАЙДЕНЫ")
     except Exception:
-        print("  -> КАРТОЧКИ НЕ НАЙДЕНЫ! Возможно антибот или изменилась разметка.")
+        print("  -> Карточки не появились, жду ещё 10 сек (WAF редирект?)")
+        time.sleep(10)
+        try:
+            page.wait_for_selector(CARD_SELECTOR, timeout=30000)
+            print("  -> Карточки НАЙДЕНЫ после ожидания")
+        except Exception:
+            print("  -> КАРТОЧКИ НЕ НАЙДЕНЫ")
 
     time.sleep(2)
-    html = page.content()
+    html1 = page.content()
 
-    print("\nШАГ 4: Пауза 5 сек — посмотри на открытый браузер...")
-    time.sleep(5)
+    # Определяем кол-во страниц
+    total_pages = parser.get_total_pages(html1)
+    print(f"  Всего страниц: {total_pages}")
+
+    # Парсим страницу 1
+    products1 = parser.parse_products(html1)
+    print(f"  Товаров на странице 1: {len(products1)}")
+    all_products.extend(products1)
+
+    # ── Остальные страницы ──────────────────────────────────────────
+    for page_num in range(2, total_pages + 1):
+        url = f"{URL}?p={page_num}"
+        print(f"\n[Страница {page_num}/{total_pages}] Жду {DELAY_BETWEEN_PAGES} сек...")
+        time.sleep(DELAY_BETWEEN_PAGES)
+
+        print(f"  Захожу: {url}")
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=120000)
+        except Exception as e:
+            print(f"  goto() ошибка: {e}")
+
+        print(f"  Жду карточки (timeout={WAIT_TIMEOUT}ms)...")
+        try:
+            page.wait_for_selector(CARD_SELECTOR, timeout=WAIT_TIMEOUT)
+            print("  -> Карточки НАЙДЕНЫ")
+        except Exception:
+            print("  -> Карточки не появились, жду ещё 10 сек...")
+            time.sleep(10)
+            try:
+                page.wait_for_selector(CARD_SELECTOR, timeout=30000)
+                print("  -> Карточки НАЙДЕНЫ после ожидания")
+            except Exception:
+                print("  -> КАРТОЧКИ НЕ НАЙДЕНЫ — пропускаю страницу")
+                continue
+
+        time.sleep(2)
+        html = page.content()
+        products = parser.parse_products(html)
+        print(f"  Товаров на странице {page_num}: {len(products)}")
+        all_products.extend(products)
+
     browser.close()
 
+# ── Итог ────────────────────────────────────────────────────────────
 print("\n" + "=" * 60)
-print("ШАГ 5: Парсю HTML через BeautifulSoup...")
+print(f"ИТОГО товаров: {len(all_products)}")
 print("=" * 60)
 
-soup = BeautifulSoup(html, "lxml")
-cards = soup.select(CARD_SELECTOR)
-print(f"  Найдено карточек в HTML: {len(cards)}")
-
-print("\nШАГ 6: Разбираю каждую карточку...")
-parser = CitilinkParser()
-products = parser.parse_products(html)
-
-print(f"\n  Итого товаров после разбора: {len(products)}")
-
-if products:
+if all_products:
     print("\nПервые 5 товаров:")
     print("-" * 60)
-    for p in products[:5]:
-        print(f"  ID:    {p['id']}")
-        print(f"  Имя:   {p['name']}")
-        print(f"  Цена:  {p['price']:,} руб.")
-        print(f"  URL:   {p['url']}")
+    for prod in all_products[:5]:
+        print(f"  ID:   {prod['id']}")
+        print(f"  Имя:  {prod['name']}")
+        print(f"  Цена: {prod['price']:,} руб.")
+        print(f"  URL:  {prod['url']}")
         print()
 else:
-    print("\n  [!] Товаров 0 — разбираем почему:")
-    if not cards:
-        print("  Причина: карточки не нашлись в HTML.")
-        print("  Открой citilink_page.html и найди Ctrl+F: 'ProductVerticalSnippet'")
-    else:
-        print("  Карточки нашлись, но данные не извлеклись. Смотрим первую карточку:")
-        card = cards[0]
-        link = card.select_one("a[title]")
-        price_el = card.select_one("[data-meta-price]")
-        print(f"  a[title]          = {link}")
-        print(f"  [data-meta-price] = {price_el}")
-
-print("\nШАГ 7: Сохраняю HTML страницы в citilink_page.html...")
-with open("citilink_page.html", "w", encoding="utf-8") as f:
-    f.write(html)
-print("  -> Файл сохранён. Открой его в браузере, Ctrl+F -> 'data-meta-price'")
-
-print("\nГотово!")
+    print("\n[!] Товаров 0 — что-то пошло не так")
