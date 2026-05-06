@@ -88,6 +88,46 @@ def run_parsers(sources=None, max_pages=None):
 
     all_products = {}
 
+    # Ситилинк — все категории в одной браузерной сессии (экономия памяти).
+    citilink_keys = [k for k in sources if k in CITILINK_PARSERS]
+    if citilink_keys:
+        from parser_citilink_categories import run_all_categories as citilink_run_all
+        run_ids = {}
+        for key in citilink_keys:
+            parser_cls = CITILINK_PARSERS[key]
+            source = getattr(parser_cls, "SOURCE_NAME", "citilink")
+            category = getattr(parser_cls, "_CATEGORY", None)
+            run_ids[key] = db.start_parse_run(key, source, category)
+
+        print(f"[citilink] Вызываю run_all_categories для {citilink_keys}", flush=True)
+        try:
+            citilink_results = citilink_run_all(citilink_keys)
+        except Exception as e:
+            print(f"[citilink] ОШИБКА run_all_categories: {e}")
+            citilink_results = {k: [] for k in citilink_keys}
+
+        for key in citilink_keys:
+            parser_cls = CITILINK_PARSERS[key]
+            source = getattr(parser_cls, "SOURCE_NAME", "citilink")
+            category = getattr(parser_cls, "_CATEGORY", None)
+            products = citilink_results.get(key, [])
+            if category:
+                from base_parser import filter_by_category
+                products = filter_by_category(products, category)
+            all_products[key] = products
+            run_id = run_ids.get(key)
+            try:
+                saved, updated = db.save_products(products, source)
+                if products:
+                    present_ids = [str(p["id"]) for p in products]
+                    db.mark_missing_as_out_of_stock(source, present_ids, category=category)
+                db.finish_parse_run(run_id, "ok", len(products), saved, updated, None)
+                print(f"[{key}] Сохранено: {saved} новых, {updated} обновлено")
+            except Exception as e:
+                if run_id:
+                    db.finish_parse_run(run_id, "error", 0, 0, 0, error_msg=str(e))
+                print(f"[{key}] ОШИБКА при сохранении: {e}")
+
     # Эльдорадо использует Group-IB защиту — все его категории запускаем
     # в одной браузерной сессии, чтобы JS-challenge прошёл один раз.
     eldorado_keys = [k for k in sources if k in ELDORADO_PARSERS]
@@ -132,6 +172,8 @@ def run_parsers(sources=None, max_pages=None):
     _last_source_seen = {}  # source → время последнего запуска категории
 
     for name in sources:
+        if name in CITILINK_PARSERS:
+            continue  # уже обработан выше
         if name in ELDORADO_PARSERS:
             continue  # уже обработан выше
 
