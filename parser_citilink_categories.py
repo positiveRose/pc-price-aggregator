@@ -13,6 +13,12 @@ from playwright_stealth import Stealth
 from base_parser import _CHROMIUM_ARGS, PARSER_PROXY
 from parser_citilink import CitilinkParser
 
+# На Railway --dns-over-https-mode=secure вешает Chromium намертво если DoH-пакеты
+# дропаются (без RST) — Playwright-таймаут не срабатывает, браузер ждёт DNS вечно.
+# Локально с VPN DoH работает нормально, поэтому проблема только на Railway.
+_CITILINK_CHROMIUM_ARGS = [a for a in _CHROMIUM_ARGS
+                           if "dns-over-https" not in a]
+
 # Категория → URL каталога на Ситилинк
 CITILINK_CATEGORIES = {
     "GPU":    "https://www.citilink.ru/catalog/videokarty/",
@@ -110,7 +116,7 @@ def run_all_categories(keys=None):
     print(f"[citilink] Запуск run_all_categories, категорий: {len(keys)}", flush=True)
     with sync_playwright() as p:
         print("[citilink] Запускаю Chromium...", flush=True)
-        browser = p.chromium.launch(headless=True, args=_CHROMIUM_ARGS)
+        browser = p.chromium.launch(headless=True, args=_CITILINK_CHROMIUM_ARGS)
         print("[citilink] Chromium запущен.", flush=True)
 
         ctx_opts = {
@@ -143,7 +149,7 @@ def run_all_categories(keys=None):
                     browser.close()
                 except Exception:
                     pass
-                browser = p.chromium.launch(headless=True, args=_CHROMIUM_ARGS)
+                browser = p.chromium.launch(headless=True, args=_CITILINK_CHROMIUM_ARGS)
                 context = browser.new_context(**ctx_opts)
             page = context.new_page()
             Stealth().apply_stealth_sync(page)
