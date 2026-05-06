@@ -128,46 +128,6 @@ def run_parsers(sources=None, max_pages=None):
                     db.finish_parse_run(run_id, "error", 0, 0, 0, error_msg=str(e))
                 print(f"[{key}] ОШИБКА при сохранении: {e}")
 
-    # Регард — все категории в одной браузерной сессии (экономия памяти).
-    regard_keys = [k for k in sources if k in REGARD_PARSERS]
-    if regard_keys:
-        from parser_regard_categories import run_all_categories as regard_run_all
-        run_ids = {}
-        for key in regard_keys:
-            parser_cls = REGARD_PARSERS[key]
-            source = getattr(parser_cls, "SOURCE_NAME", "regard")
-            category = getattr(parser_cls, "_CATEGORY", None)
-            run_ids[key] = db.start_parse_run(key, source, category)
-
-        print(f"[regard] Вызываю run_all_categories для {regard_keys}", flush=True)
-        try:
-            regard_results = regard_run_all(regard_keys)
-        except Exception as e:
-            print(f"[regard] ОШИБКА run_all_categories: {e}")
-            regard_results = {k: [] for k in regard_keys}
-
-        for key in regard_keys:
-            parser_cls = REGARD_PARSERS[key]
-            source = getattr(parser_cls, "SOURCE_NAME", "regard")
-            category = getattr(parser_cls, "_CATEGORY", None)
-            products = regard_results.get(key, [])
-            if category:
-                from base_parser import filter_by_category
-                products = filter_by_category(products, category)
-            all_products[key] = products
-            run_id = run_ids.get(key)
-            try:
-                saved, updated = db.save_products(products, source)
-                if products:
-                    present_ids = [str(p["id"]) for p in products]
-                    db.mark_missing_as_out_of_stock(source, present_ids, category=category)
-                db.finish_parse_run(run_id, "ok", len(products), saved, updated, None)
-                print(f"[{key}] Сохранено: {saved} новых, {updated} обновлено")
-            except Exception as e:
-                if run_id:
-                    db.finish_parse_run(run_id, "error", 0, 0, 0, error_msg=str(e))
-                print(f"[{key}] ОШИБКА при сохранении: {e}")
-
     # Эльдорадо использует Group-IB защиту — все его категории запускаем
     # в одной браузерной сессии, чтобы JS-challenge прошёл один раз.
     eldorado_keys = [k for k in sources if k in ELDORADO_PARSERS]
@@ -213,8 +173,6 @@ def run_parsers(sources=None, max_pages=None):
 
     for name in sources:
         if name in CITILINK_PARSERS:
-            continue  # уже обработан выше
-        if name in REGARD_PARSERS:
             continue  # уже обработан выше
         if name in ELDORADO_PARSERS:
             continue  # уже обработан выше

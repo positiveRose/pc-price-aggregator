@@ -125,16 +125,18 @@ def run_all_categories(keys=None):
         if PARSER_PROXY:
             ctx_opts["proxy"] = {"server": PARSER_PROXY}
 
-        context = browser.new_context(**ctx_opts)
-        page = context.new_page()
-        Stealth().apply_stealth_sync(page)
-
         for key in keys:
             parser_cls = CATEGORY_PARSERS.get(key)
             if not parser_cls:
                 continue
             parser = parser_cls()
             all_products = []
+
+            # Свежий контекст на каждую категорию — исключает загрязнение
+            # сессии/cookies между категориями, которое давало 0 товаров.
+            context = browser.new_context(**ctx_opts)
+            page = context.new_page()
+            Stealth().apply_stealth_sync(page)
 
             try:
                 html = _load_page(page, parser_cls.CATALOG_URL)
@@ -155,6 +157,11 @@ def run_all_categories(keys=None):
 
             except Exception as e:
                 print(f"[{key}] ОШИБКА: {e}")
+            finally:
+                try:
+                    context.close()
+                except Exception:
+                    pass
 
             print(f"[citilink] [{parser_cls._CATEGORY}] Найдено товаров: {len(all_products)}")
             results[key] = all_products
