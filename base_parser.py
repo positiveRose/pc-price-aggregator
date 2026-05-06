@@ -120,6 +120,10 @@ if PARSER_PROXY:
 # Используется всеми Playwright-парсерами (base + ozon).
 # ─────────────────────────────────────────────────────────────────────────────
 _CHROMIUM_ARGS = [
+    # Критично для контейнеров: без этого Chromium пишет в /dev/shm (64 MB),
+    # переполняет его и крашится с "Page crashed". Флаг переключает на /tmp.
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
     "--dns-prefetch-disable",
     "--dns-over-https-mode=secure",
     "--dns-over-https-templates=https://dns.google/dns-query{?dns}",

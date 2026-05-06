@@ -134,7 +134,17 @@ def run_all_categories(keys=None):
 
             # Свежий контекст на каждую категорию — исключает загрязнение
             # сессии/cookies между категориями, которое давало 0 товаров.
-            context = browser.new_context(**ctx_opts)
+            # Если браузер упал (Page crashed) — перезапускаем его.
+            try:
+                context = browser.new_context(**ctx_opts)
+            except Exception as e:
+                print(f"[citilink] Браузер упал, перезапускаю: {e}", flush=True)
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+                browser = p.chromium.launch(headless=True, args=_CHROMIUM_ARGS)
+                context = browser.new_context(**ctx_opts)
             page = context.new_page()
             Stealth().apply_stealth_sync(page)
 

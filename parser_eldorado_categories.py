@@ -83,11 +83,8 @@ def run_all_categories(keys=None):
 
     results = {k: [] for k in keys}
 
-    print(f"[eldorado] Запуск run_all_categories, категорий: {len(keys)}", flush=True)
-    with sync_playwright() as p:
-        print("[eldorado] Запускаю Chromium...", flush=True)
+    def _launch(p):
         browser = p.chromium.launch(headless=True, args=_CHROMIUM_ARGS)
-        print("[eldorado] Chromium запущен.", flush=True)
         ctx_opts = {
             "viewport": {"width": 1920, "height": 1080},
             "locale": "ru-RU",
@@ -102,15 +99,15 @@ def run_all_categories(keys=None):
         context = browser.new_context(**ctx_opts)
         page = context.new_page()
         Stealth().apply_stealth_sync(page)
+        return browser, page
 
-        # Прогрев: загружаем главную, ждём пока Group-IB выдаст cookie.
-        # headless=False нужен чтобы пройти Group-IB JS-challenge.
-        print("[eldorado] Прогрев сессии (Group-IB challenge)...")
+    def _warmup(page):
+        """Проходим Group-IB JS-challenge на главной странице."""
+        print("[eldorado] Прогрев сессии (Group-IB challenge)...", flush=True)
         try:
             page.goto("https://www.eldorado.ru/", wait_until="domcontentloaded", timeout=60000)
         except Exception:
             pass
-        # Ждём появления __NEXT_DATA__ (признак что challenge пройден и страница загружена)
         try:
             page.wait_for_function(
                 "!!document.getElementById('__NEXT_DATA__')",
@@ -118,7 +115,25 @@ def run_all_categories(keys=None):
             )
         except Exception:
             pass
-        print("[eldorado] Прогрев завершён.")
+        print("[eldorado] Прогрев завершён.", flush=True)
+
+    def _restart(p, browser):
+        """Закрывает упавший браузер и запускает новый с прогревом."""
+        print("[eldorado] Браузер упал, перезапускаю...", flush=True)
+        try:
+            browser.close()
+        except Exception:
+            pass
+        browser, page = _launch(p)
+        _warmup(page)
+        return browser, page
+
+    print(f"[eldorado] Запуск run_all_categories, категорий: {len(keys)}", flush=True)
+    with sync_playwright() as p:
+        print("[eldorado] Запускаю Chromium...", flush=True)
+        browser, page = _launch(p)
+        print("[eldorado] Chromium запущен.", flush=True)
+        _warmup(page)
 
         for key in keys:
             parser_cls = CATEGORY_PARSERS.get(key)
@@ -148,6 +163,8 @@ def run_all_categories(keys=None):
                 results[key] = all_products
             except Exception as e:
                 print(f"[{key}] ОШИБКА: {e}")
+                if "crashed" in str(e).lower():
+                    browser, page = _restart(p, browser)
 
         try:
             browser.close()
