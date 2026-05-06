@@ -27,6 +27,7 @@ def _make_parser(category, url):
         CATALOG_URL = url
         WAIT_TIMEOUT = 45000
         DELAY_BETWEEN_PAGES = 5
+        MAX_PAGES = 15
         _CATEGORY = category
 
         def parse_products(self, html):

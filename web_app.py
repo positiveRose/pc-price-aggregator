@@ -103,7 +103,7 @@ if not _SESSION_SECRET:
 # ------------------------------------------------------------------ #
 
 _scheduler = BackgroundScheduler(
-    executors={"default": APSThreadPool(max_workers=1)},
+    executors={"default": APSThreadPool(max_workers=3)},
     job_defaults={"coalesce": True, "max_instances": 1},
 )
 
