@@ -5,6 +5,7 @@
 чтобы не плодить несколько Chromium-инстансов одновременно (экономия памяти).
 """
 
+import threading
 import time
 
 from playwright.sync_api import sync_playwright
@@ -131,6 +132,10 @@ def run_all_categories(keys=None):
         if PARSER_PROXY:
             ctx_opts["proxy"] = {"server": PARSER_PROXY}
 
+        # Внешний таймаут на категорию: если Playwright завис (таймауты не
+        # срабатывают в фоновом треде Railway) — принудительно закрываем браузер.
+        _CAT_HARD_TIMEOUT = 300  # 5 минут на категорию
+
         for key in keys:
             parser_cls = CATEGORY_PARSERS.get(key)
             if not parser_cls:
@@ -154,6 +159,25 @@ def run_all_categories(keys=None):
             page = context.new_page()
             Stealth().apply_stealth_sync(page)
 
+            # Hard-timeout: если категория зависла — закрываем браузер чтобы
+            # разблокировать Playwright и перейти к следующей категории.
+            _browser_ref = [browser]
+
+            def _kill_browser():
+                print(
+                    f"[citilink] [{parser_cls._CATEGORY}] "
+                    f"ТАЙМАУТ {_CAT_HARD_TIMEOUT}s — принудительно закрываю браузер",
+                    flush=True,
+                )
+                try:
+                    _browser_ref[0].close()
+                except Exception:
+                    pass
+
+            _timer = threading.Timer(_CAT_HARD_TIMEOUT, _kill_browser)
+            _timer.daemon = True
+            _timer.start()
+
             try:
                 html = _load_page(page, parser_cls.CATALOG_URL)
                 all_products.extend(parser.parse_products(html))
@@ -172,15 +196,25 @@ def run_all_categories(keys=None):
                         print(f"[citilink] Ошибка на стр. {page_num}: {e}")
 
             except Exception as e:
-                print(f"[{key}] ОШИБКА: {e}")
+                print(f"[{key}] ОШИБКА: {e}", flush=True)
             finally:
+                _timer.cancel()
                 try:
                     context.close()
                 except Exception:
                     pass
 
-            print(f"[citilink] [{parser_cls._CATEGORY}] Найдено товаров: {len(all_products)}")
+            print(f"[citilink] [{parser_cls._CATEGORY}] Найдено товаров: {len(all_products)}", flush=True)
             results[key] = all_products
+
+            # После таймаута браузер закрыт — перезапускаем для следующей категории
+            try:
+                browser.is_connected()
+            except Exception:
+                print("[citilink] Браузер закрыт после таймаута, перезапускаю...", flush=True)
+                browser = p.chromium.launch(headless=True, args=_CITILINK_CHROMIUM_ARGS)
+                _browser_ref[0] = browser
+
             time.sleep(_CAT_DELAY)
 
         try:
