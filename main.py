@@ -90,6 +90,7 @@ def run_parsers(sources=None, max_pages=None):
 
     # Ситилинк — все категории в одной браузерной сессии (экономия памяти).
     citilink_keys = [k for k in sources if k in CITILINK_PARSERS]
+    print(f"[citilink] citilink_keys={citilink_keys}", flush=True)
     if citilink_keys:
         from parser_citilink_categories import run_all_categories as citilink_run_all
         run_ids = {}
@@ -97,6 +98,7 @@ def run_parsers(sources=None, max_pages=None):
             parser_cls = CITILINK_PARSERS[key]
             source = getattr(parser_cls, "SOURCE_NAME", "citilink")
             category = getattr(parser_cls, "_CATEGORY", None)
+            print(f"[citilink] db.start_parse_run({key})", flush=True)
             run_ids[key] = db.start_parse_run(key, source, category)
 
         print(f"[citilink] Вызываю run_all_categories для {citilink_keys}", flush=True)

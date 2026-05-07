@@ -109,13 +109,12 @@ _scheduler = BackgroundScheduler(
 
 # Расписание: (job_id, алиасы парсеров, интервал в часах)
 _SCHEDULE = [
+    ("job_citilink",    ["citilink-all"],    12),  # первым — пока память свежая
     ("job_mvideo",      ["mvideo-all"],      4),
     ("job_wb",          ["wb-all"],          6),
     ("job_regard",      ["regard-all"],      6),
     ("job_oldi",        ["oldi-all"],        6),
-    ("job_citilink",    ["citilink-all"],    12),
     ("job_eldorado",    ["eldorado-all"],    12),
-
     ("job_kns",         ["kns-all"],         6),
     ("job_fcenter",     ["fcenter-all"],     12),
 ]
@@ -124,6 +123,7 @@ _SCHEDULE = [
 def _make_job(parser_keys: list):
     """Возвращает callable для APScheduler."""
     def _job():
+        print(f"[scheduler] СТАРТ: {parser_keys}", flush=True)
         from main import run_parsers, _ALL_ALIASES
         expanded = []
         for k in parser_keys:
@@ -131,7 +131,9 @@ def _make_job(parser_keys: list):
         try:
             run_parsers(expanded)
         except Exception as e:
+            print(f"[scheduler] ОШИБКА {parser_keys}: {e}", flush=True)
             logging.error(f"Scheduler error for {parser_keys}: {e}")
+        print(f"[scheduler] КОНЕЦ: {parser_keys}", flush=True)
     return _job
 
 
