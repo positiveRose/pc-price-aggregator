@@ -18,7 +18,10 @@ from parser_citilink import CitilinkParser
 # дропаются (без RST) — Playwright-таймаут не срабатывает, браузер ждёт DNS вечно.
 # Локально с VPN DoH работает нормально, поэтому проблема только на Railway.
 _CITILINK_CHROMIUM_ARGS = [a for a in _CHROMIUM_ARGS
-                           if "dns-over-https" not in a]
+                           if "dns-over-https" not in a] + [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+]
 
 # Категория → URL каталога на Ситилинк
 CITILINK_CATEGORIES = {
@@ -134,7 +137,7 @@ def run_all_categories(keys=None):
 
         # Внешний таймаут на категорию: если Playwright завис (таймауты не
         # срабатывают в фоновом треде Railway) — принудительно закрываем браузер.
-        _CAT_HARD_TIMEOUT = 300  # 5 минут на категорию
+        _CAT_HARD_TIMEOUT = 600  # 10 минут на категорию (с учётом краш-рекавери)
 
         for key in keys:
             parser_cls = CATEGORY_PARSERS.get(key)
@@ -162,8 +165,10 @@ def run_all_categories(keys=None):
             # Hard-timeout: если категория зависла — закрываем браузер чтобы
             # разблокировать Playwright и перейти к следующей категории.
             _browser_ref = [browser]
+            _timed_out = [False]
 
             def _kill_browser():
+                _timed_out[0] = True
                 print(
                     f"[citilink] [{parser_cls._CATEGORY}] "
                     f"ТАЙМАУТ {_CAT_HARD_TIMEOUT}s — принудительно закрываю браузер",
@@ -183,17 +188,33 @@ def run_all_categories(keys=None):
                 all_products.extend(parser.parse_products(html))
 
                 total_pages = min(parser.get_total_pages(html), parser.MAX_PAGES)
-                print(f"[citilink] [{parser_cls._CATEGORY}] Страниц: {total_pages}")
+                print(f"[citilink] [{parser_cls._CATEGORY}] Страниц: {total_pages}", flush=True)
 
                 for page_num in range(2, total_pages + 1):
                     time.sleep(_PAGE_DELAY)
                     page_url = parser.get_page_url(page_num)
-                    print(f"[citilink] [{parser_cls._CATEGORY}] Стр. {page_num}: {page_url}")
+                    print(f"[citilink] [{parser_cls._CATEGORY}] Стр. {page_num}: {page_url}", flush=True)
                     try:
                         html = _load_page(page, page_url)
                         all_products.extend(parser.parse_products(html))
                     except Exception as e:
-                        print(f"[citilink] Ошибка на стр. {page_num}: {e}")
+                        print(f"[citilink] Ошибка на стр. {page_num}: {e}", flush=True)
+                        if "crash" in str(e).lower():
+                            # Page crashed (OOM) — пересоздаём context и page
+                            # чтобы продолжить оставшиеся страницы на чистом рендерере
+                            print(f"[citilink] [{parser_cls._CATEGORY}] "
+                                  f"Page crash на стр. {page_num}, пересоздаю context...", flush=True)
+                            try:
+                                context.close()
+                            except Exception:
+                                pass
+                            try:
+                                context = browser.new_context(**ctx_opts)
+                                page = context.new_page()
+                                Stealth().apply_stealth_sync(page)
+                            except Exception as e2:
+                                print(f"[citilink] Не удалось пересоздать context: {e2}", flush=True)
+                                break
 
             except Exception as e:
                 print(f"[{key}] ОШИБКА: {e}", flush=True)
@@ -208,10 +229,12 @@ def run_all_categories(keys=None):
             results[key] = all_products
 
             # После таймаута браузер закрыт — перезапускаем для следующей категории
-            try:
-                browser.is_connected()
-            except Exception:
-                print("[citilink] Браузер закрыт после таймаута, перезапускаю...", flush=True)
+            if _timed_out[0]:
+                print("[citilink] Перезапускаю браузер после таймаута...", flush=True)
+                try:
+                    browser.close()
+                except Exception:
+                    pass
                 browser = p.chromium.launch(headless=True, args=_CITILINK_CHROMIUM_ARGS)
                 _browser_ref[0] = browser
 
