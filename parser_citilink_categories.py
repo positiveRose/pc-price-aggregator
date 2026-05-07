@@ -1,12 +1,25 @@
 """
 Парсеры Ситилинк для всех категорий комплектующих ПК.
-Используют единую фабричную функцию — никакого дублирования кода.
-Все категории запускаются в одной браузерной сессии через run_all_categories()
-чтобы не плодить несколько Chromium-инстансов одновременно (экономия памяти).
+
+Каждая категория запускается в отдельном subprocess — это обеспечивает
+полную изоляцию: таймаут убивает subprocess целиком без повреждения
+greenlet/asyncio состояния родительского процесса. Предыдущий подход
+с pkill + threading.Timer приводил к:
+  greenlet.error: cannot switch to a different thread (which happens to have exited)
+после чего все оставшиеся страницы категории падали.
+
+Результаты пишутся инкрементально после каждой страницы — так что даже
+при принудительном убийстве subprocess данные от уже загруженных страниц
+не теряются.
 """
 
-import threading
+import json
+import os
+import subprocess
+import sys
+import tempfile
 import time
+from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
@@ -16,7 +29,6 @@ from parser_citilink import CitilinkParser
 
 # На Railway --dns-over-https-mode=secure вешает Chromium намертво если DoH-пакеты
 # дропаются (без RST) — Playwright-таймаут не срабатывает, браузер ждёт DNS вечно.
-# Локально с VPN DoH работает нормально, поэтому проблема только на Railway.
 _CITILINK_CHROMIUM_ARGS = [a for a in _CHROMIUM_ARGS
                            if "dns-over-https" not in a] + [
     "--no-sandbox",
@@ -40,6 +52,7 @@ _CARD_SELECTOR = CitilinkParser.CARD_SELECTOR
 _WAIT_TIMEOUT  = 45000
 _PAGE_DELAY    = 5   # секунд между страницами одной категории
 _CAT_DELAY     = 15  # секунд между категориями
+_CAT_HARD_TIMEOUT = 700  # секунд на одну категорию до принудительного kill subprocess
 
 
 def _make_parser(category, url):
@@ -74,7 +87,7 @@ def _load_page(page, url):
     try:
         page.goto(url, wait_until="commit", timeout=60000)
     except Exception as e:
-        print(f"[citilink] goto timeout/error на {url}: {e}")
+        print(f"[citilink] goto timeout/error на {url}: {e}", flush=True)
         time.sleep(5)
 
     try:
@@ -88,8 +101,8 @@ def _load_page(page, url):
             time.sleep(2)
         except Exception:
             preview = page.content()[:300].replace("\n", " ")
-            print(f"[citilink] Карточки не появились на {url}")
-            print(f"[citilink] HTML preview: {preview}")
+            print(f"[citilink] Карточки не появились на {url}", flush=True)
+            print(f"[citilink] HTML preview: {preview}", flush=True)
 
     # Скроллим для подгрузки lazy-loading карточек
     for _ in range(10):
@@ -100,11 +113,123 @@ def _load_page(page, url):
     return page.content()
 
 
-def run_all_categories(keys=None):
-    """Запускает категории Ситилинк в одной браузерной сессии.
+def _run_category_internal(key, output_path=None):
+    """Запускает одну категорию в текущем процессе.
 
-    Один Chromium-инстанс на все категории — в отличие от запуска каждого
-    парсера отдельно, не плодим по браузеру на каждую из 9 категорий.
+    Пишет результаты инкрементально в output_path (JSON) после каждой
+    страницы — так данные сохраняются даже если процесс будет убит.
+
+    Args:
+        key: ключ из CATEGORY_PARSERS ('citilink-gpu' и т.д.)
+        output_path: путь к файлу для записи результатов; None = не писать.
+
+    Returns:
+        list of product dicts
+    """
+    parser_cls = CATEGORY_PARSERS.get(key)
+    if not parser_cls:
+        return []
+
+    parser = parser_cls()
+    cat = parser_cls._CATEGORY
+    all_products = []
+
+    ctx_opts = {
+        "viewport": {"width": 1920, "height": 1080},
+        "locale": "ru-RU",
+        "user_agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/131.0.0.0 Safari/537.36"
+        ),
+    }
+    if PARSER_PROXY:
+        ctx_opts["proxy"] = {"server": PARSER_PROXY}
+
+    def _save(products):
+        """Записывает текущие результаты в файл (инкрементальное сохранение)."""
+        if output_path:
+            try:
+                with open(output_path, "w", encoding="utf-8") as f:
+                    json.dump(products, f, ensure_ascii=False)
+            except Exception as e:
+                print(f"[citilink] [{cat}] Ошибка записи в {output_path}: {e}", flush=True)
+
+    print(f"[citilink] [{cat}] Запускаю Chromium...", flush=True)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, args=_CITILINK_CHROMIUM_ARGS)
+        context = browser.new_context(**ctx_opts)
+        page = context.new_page()
+        Stealth().apply_stealth_sync(page)
+
+        # Блокируем изображения, видео и шрифты — снижает OOM-крashi Chromium.
+        # На результат парсинга не влияет: в БД сохраняются только текст и URL.
+        def _block_resources(route):
+            if route.request.resource_type in ("image", "media", "font"):
+                route.abort()
+            else:
+                route.continue_()
+        page.route("**/*", _block_resources)
+
+        try:
+            html = _load_page(page, parser_cls.CATALOG_URL)
+            all_products.extend(parser.parse_products(html))
+            _save(all_products)
+
+            total_pages = min(parser.get_total_pages(html), parser.MAX_PAGES)
+            print(f"[citilink] [{cat}] Страниц: {total_pages}", flush=True)
+
+            for page_num in range(2, total_pages + 1):
+                time.sleep(_PAGE_DELAY)
+                page_url = parser.get_page_url(page_num)
+                print(f"[citilink] [{cat}] Стр. {page_num}: {page_url}", flush=True)
+                try:
+                    html = _load_page(page, page_url)
+                    all_products.extend(parser.parse_products(html))
+                    _save(all_products)
+                except Exception as e:
+                    print(f"[citilink] Ошибка на стр. {page_num}: {e}", flush=True)
+                    if "crash" in str(e).lower():
+                        # Page crashed (OOM) — пересоздаём context и page
+                        print(f"[citilink] [{cat}] Page crash на стр. {page_num}, "
+                              f"пересоздаю context...", flush=True)
+                        try:
+                            context.close()
+                        except Exception:
+                            pass
+                        try:
+                            context = browser.new_context(**ctx_opts)
+                            page = context.new_page()
+                            Stealth().apply_stealth_sync(page)
+                            page.route("**/*", _block_resources)
+                        except Exception as e2:
+                            print(f"[citilink] Не удалось пересоздать context: {e2}", flush=True)
+                            break
+
+        except Exception as e:
+            print(f"[citilink] [{cat}] ОШИБКА: {e}", flush=True)
+        finally:
+            try:
+                context.close()
+            except Exception:
+                pass
+            try:
+                browser.close()
+            except Exception:
+                pass
+
+    print(f"[citilink] [{cat}] Найдено товаров: {len(all_products)}", flush=True)
+    _save(all_products)
+    return all_products
+
+
+def run_all_categories(keys=None):
+    """Запускает категории Ситилинк, каждую в отдельном subprocess.
+
+    Изоляция по процессу: таймаут убивает subprocess целиком — без
+    повреждения greenlet/asyncio состояния родительского процесса.
+    Данные пишутся инкрементально: при таймауте возвращаются частичные
+    результаты от уже успевших загрузиться страниц.
 
     Args:
         keys: список ключей из CATEGORY_PARSERS; None = все категории.
@@ -116,140 +241,71 @@ def run_all_categories(keys=None):
         keys = list(CATEGORY_PARSERS.keys())
 
     results = {k: [] for k in keys}
+    proj_dir = str(Path(__file__).parent)
 
     print(f"[citilink] Запуск run_all_categories, категорий: {len(keys)}", flush=True)
-    with sync_playwright() as p:
-        print("[citilink] Запускаю Chromium...", flush=True)
-        browser = p.chromium.launch(headless=True, args=_CITILINK_CHROMIUM_ARGS)
-        print("[citilink] Chromium запущен.", flush=True)
 
-        ctx_opts = {
-            "viewport": {"width": 1920, "height": 1080},
-            "locale": "ru-RU",
-            "user_agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36"
-            ),
-        }
-        if PARSER_PROXY:
-            ctx_opts["proxy"] = {"server": PARSER_PROXY}
+    for key in keys:
+        parser_cls = CATEGORY_PARSERS.get(key)
+        if not parser_cls:
+            continue
+        cat = parser_cls._CATEGORY
 
-        # Внешний таймаут на категорию: если Playwright завис (таймауты не
-        # срабатывают в фоновом треде Railway) — принудительно закрываем браузер.
-        _CAT_HARD_TIMEOUT = 600  # 10 минут на категорию (с учётом краш-рекавери)
+        # Временный файл для результатов subprocess
+        output_fd, output_path = tempfile.mkstemp(suffix=".json")
+        os.close(output_fd)
 
-        for key in keys:
-            parser_cls = CATEGORY_PARSERS.get(key)
-            if not parser_cls:
-                continue
-            parser = parser_cls()
-            all_products = []
+        script = (
+            f"import sys\n"
+            f"sys.path.insert(0, {proj_dir!r})\n"
+            f"from parser_citilink_categories import _run_category_internal\n"
+            f"_run_category_internal({key!r}, {output_path!r})\n"
+        )
 
-            # Свежий контекст на каждую категорию — исключает загрязнение
-            # сессии/cookies между категориями, которое давало 0 товаров.
-            # Если браузер упал (Page crashed) — перезапускаем его.
+        print(f"[citilink] [{cat}] Запускаю subprocess...", flush=True)
+        proc = subprocess.Popen(
+            [sys.executable, "-c", script],
+            # stdout/stderr наследуются от родителя → видно в Railway логах
+        )
+
+        timed_out = False
+        try:
+            proc.wait(timeout=_CAT_HARD_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            print(
+                f"[citilink] [{cat}] ТАЙМАУТ {_CAT_HARD_TIMEOUT}s — "
+                f"убиваю subprocess (pid={proc.pid})",
+                flush=True,
+            )
+            proc.kill()
             try:
-                context = browser.new_context(**ctx_opts)
-            except Exception as e:
-                print(f"[citilink] Браузер упал, перезапускаю: {e}", flush=True)
-                try:
-                    browser.close()
-                except Exception:
-                    pass
-                browser = p.chromium.launch(headless=True, args=_CITILINK_CHROMIUM_ARGS)
-                context = browser.new_context(**ctx_opts)
-            page = context.new_page()
-            Stealth().apply_stealth_sync(page)
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
 
-            # Hard-timeout: если категория зависла — закрываем браузер чтобы
-            # разблокировать Playwright и перейти к следующей категории.
-            _browser_ref = [browser]
-            _timed_out = [False]
-
-            def _kill_browser():
-                _timed_out[0] = True
+        # Читаем результаты (могут быть частичными если был таймаут)
+        try:
+            with open(output_path, encoding="utf-8") as f:
+                content = f.read().strip()
+            if content:
+                products = json.loads(content)
+                results[key] = products
+                suffix = " (частично, таймаут)" if timed_out else ""
                 print(
-                    f"[citilink] [{parser_cls._CATEGORY}] "
-                    f"ТАЙМАУТ {_CAT_HARD_TIMEOUT}s — убиваю Chromium через pkill",
+                    f"[citilink] [{cat}] Итого товаров: {len(products)}{suffix}",
                     flush=True,
                 )
-                # browser.close() из другого треда не прерывает зависший
-                # Playwright-event-loop. Только прямой SIGKILL Chromium-процесса
-                # разрывает CDP-соединение и разблокирует page.goto().
-                import subprocess
-                subprocess.run(["pkill", "-9", "-f", "chromium"],
-                               capture_output=True)
-                time.sleep(1)
-                try:
-                    _browser_ref[0].close()
-                except Exception:
-                    pass
-
-            _timer = threading.Timer(_CAT_HARD_TIMEOUT, _kill_browser)
-            _timer.daemon = True
-            _timer.start()
-
+            else:
+                print(f"[citilink] [{cat}] Нет данных (пустой файл результатов)", flush=True)
+        except Exception as e:
+            print(f"[citilink] [{cat}] Ошибка чтения результатов: {e}", flush=True)
+        finally:
             try:
-                html = _load_page(page, parser_cls.CATALOG_URL)
-                all_products.extend(parser.parse_products(html))
+                os.remove(output_path)
+            except Exception:
+                pass
 
-                total_pages = min(parser.get_total_pages(html), parser.MAX_PAGES)
-                print(f"[citilink] [{parser_cls._CATEGORY}] Страниц: {total_pages}", flush=True)
-
-                for page_num in range(2, total_pages + 1):
-                    time.sleep(_PAGE_DELAY)
-                    page_url = parser.get_page_url(page_num)
-                    print(f"[citilink] [{parser_cls._CATEGORY}] Стр. {page_num}: {page_url}", flush=True)
-                    try:
-                        html = _load_page(page, page_url)
-                        all_products.extend(parser.parse_products(html))
-                    except Exception as e:
-                        print(f"[citilink] Ошибка на стр. {page_num}: {e}", flush=True)
-                        if "crash" in str(e).lower():
-                            # Page crashed (OOM) — пересоздаём context и page
-                            # чтобы продолжить оставшиеся страницы на чистом рендерере
-                            print(f"[citilink] [{parser_cls._CATEGORY}] "
-                                  f"Page crash на стр. {page_num}, пересоздаю context...", flush=True)
-                            try:
-                                context.close()
-                            except Exception:
-                                pass
-                            try:
-                                context = browser.new_context(**ctx_opts)
-                                page = context.new_page()
-                                Stealth().apply_stealth_sync(page)
-                            except Exception as e2:
-                                print(f"[citilink] Не удалось пересоздать context: {e2}", flush=True)
-                                break
-
-            except Exception as e:
-                print(f"[{key}] ОШИБКА: {e}", flush=True)
-            finally:
-                _timer.cancel()
-                try:
-                    context.close()
-                except Exception:
-                    pass
-
-            print(f"[citilink] [{parser_cls._CATEGORY}] Найдено товаров: {len(all_products)}", flush=True)
-            results[key] = all_products
-
-            # После таймаута браузер закрыт — перезапускаем для следующей категории
-            if _timed_out[0]:
-                print("[citilink] Перезапускаю браузер после таймаута...", flush=True)
-                try:
-                    browser.close()
-                except Exception:
-                    pass
-                browser = p.chromium.launch(headless=True, args=_CITILINK_CHROMIUM_ARGS)
-                _browser_ref[0] = browser
-
-            time.sleep(_CAT_DELAY)
-
-        try:
-            browser.close()
-        except Exception:
-            pass
+        time.sleep(_CAT_DELAY)
 
     return results
