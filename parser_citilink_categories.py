@@ -68,7 +68,7 @@ CATEGORY_PARSERS = {
 def _load_page(page, url):
     """Загружает страницу Citilink с обработкой WAF-редиректа."""
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=120000)
+        page.goto(url, wait_until="commit", timeout=60000)
     except Exception as e:
         print(f"[citilink] goto timeout/error на {url}: {e}")
         time.sleep(5)
