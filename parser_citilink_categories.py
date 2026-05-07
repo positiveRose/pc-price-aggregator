@@ -171,9 +171,16 @@ def run_all_categories(keys=None):
                 _timed_out[0] = True
                 print(
                     f"[citilink] [{parser_cls._CATEGORY}] "
-                    f"ТАЙМАУТ {_CAT_HARD_TIMEOUT}s — принудительно закрываю браузер",
+                    f"ТАЙМАУТ {_CAT_HARD_TIMEOUT}s — убиваю Chromium через pkill",
                     flush=True,
                 )
+                # browser.close() из другого треда не прерывает зависший
+                # Playwright-event-loop. Только прямой SIGKILL Chromium-процесса
+                # разрывает CDP-соединение и разблокирует page.goto().
+                import subprocess
+                subprocess.run(["pkill", "-9", "-f", "chromium"],
+                               capture_output=True)
+                time.sleep(1)
                 try:
                     _browser_ref[0].close()
                 except Exception:
