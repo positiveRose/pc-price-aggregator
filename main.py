@@ -188,7 +188,7 @@ def run_parsers(sources=None, max_pages=None):
         category = getattr(parser_cls, "_CATEGORY", None)
 
         # Задержка между категориями одного магазина (защита от бана)
-        _INTER_CATEGORY_DELAY = 30  # секунд
+        _INTER_CATEGORY_DELAY = 10  # секунд
         if source in _last_source_seen:
             elapsed = time.time() - _last_source_seen[source]
             if elapsed < _INTER_CATEGORY_DELAY:

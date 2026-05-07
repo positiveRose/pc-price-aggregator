@@ -15,6 +15,7 @@ greenlet/asyncio состояния родительского процесса.
 
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -51,7 +52,7 @@ CITILINK_CATEGORIES = {
 _CARD_SELECTOR = CitilinkParser.CARD_SELECTOR
 _WAIT_TIMEOUT  = 45000
 _PAGE_DELAY    = 5   # секунд между страницами одной категории
-_CAT_DELAY     = 15  # секунд между категориями
+_CAT_DELAY     = 5   # секунд между категориями
 _CAT_HARD_TIMEOUT = 700  # секунд на одну категорию до принудительного kill subprocess
 
 
@@ -266,6 +267,9 @@ def run_all_categories(keys=None):
         proc = subprocess.Popen(
             [sys.executable, "-c", script],
             # stdout/stderr наследуются от родителя → видно в Railway логах
+            # start_new_session=True создаёт новую сессию (process group),
+            # что позволяет убить весь дерево (Python + Chromium) одним killpg.
+            start_new_session=True,
         )
 
         timed_out = False
@@ -275,10 +279,13 @@ def run_all_categories(keys=None):
             timed_out = True
             print(
                 f"[citilink] [{cat}] ТАЙМАУТ {_CAT_HARD_TIMEOUT}s — "
-                f"убиваю subprocess (pid={proc.pid})",
+                f"убиваю process group (pid={proc.pid})",
                 flush=True,
             )
-            proc.kill()
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                proc.kill()
             try:
                 proc.wait(timeout=10)
             except subprocess.TimeoutExpired:

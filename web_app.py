@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import secrets
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -102,25 +103,29 @@ if not _SESSION_SECRET:
 # Scheduler — автоматический запуск парсеров по расписанию            #
 # ------------------------------------------------------------------ #
 
+# Лок гарантирует, что одновременно запущен не более одного Playwright-браузера.
+# HTTP-парсеры (KNS, FCenter) лок не берут → бегут параллельно с чем угодно.
+_playwright_lock = threading.Lock()
+
 _scheduler = BackgroundScheduler(
-    executors={"default": APSThreadPool(max_workers=1)},
+    executors={"default": APSThreadPool(max_workers=3)},
     job_defaults={"coalesce": True, "max_instances": 1},
 )
 
-# Расписание: (job_id, алиасы парсеров, интервал в часах)
+# Расписание: (job_id, алиасы парсеров, интервал в часах, needs_playwright_lock)
 _SCHEDULE = [
-    ("job_citilink",    ["citilink-all"],    12),  # первым — пока память свежая
-    ("job_mvideo",      ["mvideo-all"],      4),
-    ("job_wb",          ["wb-all"],          6),
-    ("job_regard",      ["regard-all"],      6),
-    ("job_oldi",        ["oldi-all"],        6),
-    ("job_eldorado",    ["eldorado-all"],    12),
-    ("job_kns",         ["kns-all"],         6),
-    ("job_fcenter",     ["fcenter-all"],     12),
+    ("job_citilink",    ["citilink-all"],    12,  True),
+    ("job_mvideo",      ["mvideo-all"],       4,  True),
+    ("job_wb",          ["wb-all"],           6,  True),
+    ("job_regard",      ["regard-all"],       6,  True),
+    ("job_oldi",        ["oldi-all"],         6,  True),
+    ("job_eldorado",    ["eldorado-all"],     12, True),
+    ("job_kns",         ["kns-all"],          6,  False),  # requests, без Chromium
+    ("job_fcenter",     ["fcenter-all"],      12, False),  # requests, без Chromium
 ]
 
 
-def _make_job(parser_keys: list):
+def _make_job(parser_keys: list, needs_playwright_lock: bool = True):
     """Возвращает callable для APScheduler."""
     def _job():
         print(f"[scheduler] СТАРТ: {parser_keys}", flush=True)
@@ -128,12 +133,20 @@ def _make_job(parser_keys: list):
         expanded = []
         for k in parser_keys:
             expanded.extend(_ALL_ALIASES.get(k, [k]))
-        try:
-            run_parsers(expanded)
-        except Exception as e:
-            print(f"[scheduler] ОШИБКА {parser_keys}: {e}", flush=True)
-            logging.error(f"Scheduler error for {parser_keys}: {e}")
-        print(f"[scheduler] КОНЕЦ: {parser_keys}", flush=True)
+
+        def _run():
+            try:
+                run_parsers(expanded)
+            except Exception as e:
+                print(f"[scheduler] ОШИБКА {parser_keys}: {e}", flush=True)
+                logging.error(f"Scheduler error for {parser_keys}: {e}")
+            print(f"[scheduler] КОНЕЦ: {parser_keys}", flush=True)
+
+        if needs_playwright_lock:
+            with _playwright_lock:
+                _run()
+        else:
+            _run()
     return _job
 
 
@@ -152,11 +165,11 @@ async def lifespan(app_: FastAPI):
 
     db.init_db()
     from datetime import datetime, timedelta
-    for idx, (job_id, keys, hours) in enumerate(_SCHEDULE):
+    for idx, (job_id, keys, hours, needs_lock) in enumerate(_SCHEDULE):
         # Разносим старт джобов: каждый следующий стартует на 15 мин позже
         first_run = datetime.now() + timedelta(minutes=5 + idx * 15)
         _scheduler.add_job(
-            _make_job(keys), "interval", hours=hours,
+            _make_job(keys, needs_lock), "interval", hours=hours,
             id=job_id, replace_existing=True,
             next_run_time=first_run,
         )
