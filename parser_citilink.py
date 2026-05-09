@@ -4,6 +4,8 @@
 Пагинация: ?p=N, всего ~8 страниц.
 """
 
+import math
+
 from bs4 import BeautifulSoup
 
 from base_parser import BaseParser
@@ -69,7 +71,12 @@ class CitilinkParser(BaseParser):
         }
 
     def get_total_pages(self, html):
-        """Ситилинк: ищем максимальный номер страницы в пагинации."""
+        """Ситилинк: ищем максимальный номер страницы в пагинации.
+
+        Фолбек: если элементы пагинации не отрисовались (React ещё не
+        гидратировал компонент), считаем страницы из счётчика товаров
+        data-meta-product-count. Ситилинк показывает 36 товаров на странице.
+        """
         soup = BeautifulSoup(html, "lxml")
         pages = soup.select("[data-meta-name^='PaginationElement__page']")
         max_page = 1
@@ -77,6 +84,23 @@ class CitilinkParser(BaseParser):
             num = el.get("data-meta-page-number", "")
             if num.isdigit():
                 max_page = max(max_page, int(num))
+
+        if max_page > 1:
+            return max_page
+
+        # Фолбек: считаем страницы из счётчика товаров
+        count_el = soup.select_one("[data-meta-product-count]")
+        if count_el:
+            try:
+                total = int(count_el.get("data-meta-product-count", 0))
+                if total > 36:
+                    computed = math.ceil(total / 36)
+                    print(f"[{self.SOURCE_NAME}] Пагинация не найдена, "
+                          f"вычислено из счётчика: {total} товаров → {computed} стр.")
+                    return computed
+            except (ValueError, TypeError):
+                pass
+
         return max_page
 
     def get_page_url(self, page_num):

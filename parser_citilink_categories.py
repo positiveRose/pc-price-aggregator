@@ -109,7 +109,9 @@ def _load_page(page, url):
     for _ in range(10):
         page.evaluate("window.scrollBy(0, 800)")
         time.sleep(0.4)
-    time.sleep(1)
+    # Докручиваем до самого низа, чтобы пагинация гарантированно отрисовалась
+    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    time.sleep(1.5)
 
     return page.content()
 
