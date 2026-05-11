@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}PC Parts Aggregator{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="stylesheet" href="/static/style.css?v=12">
+    <link rel="stylesheet" href="/static/style.css?v=13">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
@@ -56,5 +56,32 @@
 </div>
 
 {% block scripts %}{% endblock %}
+
+<nav class="mobile-bottom-nav">
+    <a href="/" class="mobile-nav-item">
+        <span class="mobile-nav-icon">🏠</span>
+        <span>Главная</span>
+    </a>
+    <a href="/search" class="mobile-nav-item">
+        <span class="mobile-nav-icon">🔍</span>
+        <span>Поиск</span>
+    </a>
+    <a href="/cart" class="mobile-nav-item">
+        <span class="mobile-nav-icon">🛒{% if cart_count > 0 %}<span class="mobile-cart-count">{{ cart_count }}</span>{% endif %}</span>
+        <span>Корзина</span>
+    </a>
+    {% if user %}
+    <a href="/profile" class="mobile-nav-item">
+        <span class="mobile-nav-icon">👤</span>
+        <span>Профиль</span>
+    </a>
+    {% else %}
+    <a href="/login" class="mobile-nav-item">
+        <span class="mobile-nav-icon">🔑</span>
+        <span>Войти</span>
+    </a>
+    {% endif %}
+</nav>
+
 </body>
 </html>
