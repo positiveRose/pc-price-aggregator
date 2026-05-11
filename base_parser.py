@@ -245,6 +245,8 @@ class BaseParser(ABC):
             for _ in range(10):
                 page.evaluate("window.scrollBy(0, 800)")
                 time.sleep(0.4)
+            # Докручиваем до абсолютного низа — гарантирует рендер React-пагинации
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             time.sleep(1)
         else:
             time.sleep(self.DELAY_BETWEEN_PAGES)
@@ -262,6 +264,8 @@ class BaseParser(ABC):
             try:
                 # Загружаем первую страницу
                 html = self._load_page(page, self.CATALOG_URL)
+                # Ждём рендеринга пагинации (может быть React-компонентом)
+                html = self._wait_for_pagination(page, html)
                 all_html.append(html)
 
                 # Определяем количество страниц
@@ -289,6 +293,14 @@ class BaseParser(ABC):
                 browser.close()
 
         return all_html
+
+    def _wait_for_pagination(self, page, html):
+        """Ждёт рендеринга пагинации и возвращает актуальный HTML.
+
+        Базовая реализация ничего не делает — пагинация статическая.
+        Переопределить в парсерах с React/JS-пагинацией.
+        """
+        return html
 
     @abstractmethod
     def parse_products(self, html):

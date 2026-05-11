@@ -111,7 +111,7 @@ def _load_page(page, url):
         time.sleep(0.4)
     # Докручиваем до самого низа, чтобы пагинация гарантированно отрисовалась
     page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-    time.sleep(1.5)
+    time.sleep(2.5)
 
     return page.content()
 
@@ -178,6 +178,18 @@ def _run_category_internal(key, output_path=None):
             html = _load_page(page, parser_cls.CATALOG_URL)
             all_products.extend(parser.parse_products(html))
             _save(all_products)
+
+            # Пагинация — React-компонент, может запаздывать после скролла.
+            # Ждём явно; если не появилась — get_total_pages упадёт на фолбек (product-count).
+            try:
+                page.wait_for_selector(
+                    "[data-meta-name^='PaginationElement__page']",
+                    timeout=15000,
+                )
+                html = page.content()
+                print(f"[citilink] [{cat}] Пагинация отрисовалась.", flush=True)
+            except Exception:
+                print(f"[citilink] [{cat}] Пагинация не появилась — используем product-count фолбек.", flush=True)
 
             total_pages = min(parser.get_total_pages(html), parser.MAX_PAGES)
             print(f"[citilink] [{cat}] Страниц: {total_pages}", flush=True)

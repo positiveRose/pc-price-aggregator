@@ -104,6 +104,17 @@ class RegardParser(BaseParser):
             return href.split("?")[0].rstrip("/").rsplit("/", 1)[-1] or href
         return match.group(1)
 
+    def _wait_for_pagination(self, page, html):
+        """Ждём рендеринга счётчика товаров (React) перед подсчётом страниц."""
+        try:
+            page.wait_for_selector(
+                "div[class*='ListingPageTitle_count']",
+                timeout=15000,
+            )
+            return page.content()
+        except Exception:
+            return html
+
     def get_total_pages(self, html):
         """Регард: ищем максимальный номер в пагинации или считаем из общего числа."""
         soup = BeautifulSoup(html, "lxml")

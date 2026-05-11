@@ -27,6 +27,14 @@ def _goto_and_get_content(page, url, delay):
             page.wait_for_load_state("domcontentloaded", timeout=30000)
         except Exception:
             pass
+    # __NEXT_DATA__ — SSR-тег с товарами и пагинацией; ждём явно
+    try:
+        page.wait_for_function(
+            "!!document.getElementById('__NEXT_DATA__')",
+            timeout=30000,
+        )
+    except Exception:
+        pass
     time.sleep(delay)
     return page.content()
 
@@ -163,7 +171,8 @@ def run_all_categories(keys=None):
                 results[key] = all_products
             except Exception as e:
                 print(f"[{key}] ОШИБКА: {e}")
-                if "crashed" in str(e).lower():
+                err = str(e).lower()
+                if any(kw in err for kw in ("crashed", "target closed", "connection closed", "browser has been closed")):
                     browser, page = _restart(p, browser)
 
         try:
