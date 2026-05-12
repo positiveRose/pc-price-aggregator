@@ -4,7 +4,9 @@
 Пагинация: ?p=N, всего ~8 страниц.
 """
 
+import json
 import math
+import re
 
 from bs4 import BeautifulSoup
 
@@ -71,13 +73,35 @@ class CitilinkParser(BaseParser):
         }
 
     def get_total_pages(self, html):
-        """Ситилинк: ищем максимальный номер страницы в пагинации.
+        """Ситилинк: определяем число страниц.
 
-        Фолбек: если элементы пагинации не отрисовались (React ещё не
-        гидратировал компонент), считаем страницы из счётчика товаров
-        data-meta-product-count. Ситилинк показывает 36 товаров на странице.
+        Приоритет 1 — __NEXT_DATA__ (SSR, всегда присутствует в HTML, не
+        зависит от React-гидратации и скролла).
+        Приоритет 2 — DOM-элементы пагинации PaginationElement__page*.
+        Приоритет 3 — счётчик товаров data-meta-product-count.
         """
+        # 1. __NEXT_DATA__
+        m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
+        if m:
+            try:
+                data = json.loads(m.group(1))
+                pag = (data.get("props", {})
+                           .get("initialState", {})
+                           .get("subcategory", {})
+                           .get("productsFilter", {})
+                           .get("payload", {})
+                           .get("productsFilter", {})
+                           .get("pagination", {}))
+                total_pages = pag.get("totalPages", 0)
+                if total_pages and int(total_pages) > 0:
+                    print(f"[{self.SOURCE_NAME}] Страниц из __NEXT_DATA__: {total_pages}", flush=True)
+                    return int(total_pages)
+            except Exception:
+                pass
+
         soup = BeautifulSoup(html, "lxml")
+
+        # 2. DOM-элементы пагинации
         pages = soup.select("[data-meta-name^='PaginationElement__page']")
         max_page = 1
         for el in pages:
@@ -88,15 +112,15 @@ class CitilinkParser(BaseParser):
         if max_page > 1:
             return max_page
 
-        # Фолбек: считаем страницы из счётчика товаров
+        # 3. Счётчик товаров
         count_el = soup.select_one("[data-meta-product-count]")
         if count_el:
             try:
                 total = int(count_el.get("data-meta-product-count", 0))
                 if total > 36:
                     computed = math.ceil(total / 36)
-                    print(f"[{self.SOURCE_NAME}] Пагинация не найдена, "
-                          f"вычислено из счётчика: {total} товаров → {computed} стр.")
+                    print(f"[{self.SOURCE_NAME}] Вычислено из счётчика: "
+                          f"{total} товаров → {computed} стр.", flush=True)
                     return computed
             except (ValueError, TypeError):
                 pass

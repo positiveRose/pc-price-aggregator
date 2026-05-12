@@ -179,18 +179,8 @@ def _run_category_internal(key, output_path=None):
             all_products.extend(parser.parse_products(html))
             _save(all_products)
 
-            # Пагинация — React-компонент, может запаздывать после скролла.
-            # Ждём явно; если не появилась — get_total_pages упадёт на фолбек (product-count).
-            try:
-                page.wait_for_selector(
-                    "[data-meta-name^='PaginationElement__page']",
-                    timeout=15000,
-                )
-                html = page.content()
-                print(f"[citilink] [{cat}] Пагинация отрисовалась.", flush=True)
-            except Exception:
-                print(f"[citilink] [{cat}] Пагинация не появилась — используем product-count фолбек.", flush=True)
-
+            # get_total_pages читает totalPages из __NEXT_DATA__ (SSR-блок),
+            # который всегда присутствует в html с первой загрузки страницы.
             total_pages = min(parser.get_total_pages(html), parser.MAX_PAGES)
             print(f"[citilink] [{cat}] Страниц: {total_pages}", flush=True)
 
