@@ -12,3 +12,5 @@ lxml==6.0.3
 requests==2.33.1
 PySocks==1.7.1
 bcrypt
+sqlalchemy>=2.0
+psycopg2-binary

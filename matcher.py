@@ -23,6 +23,7 @@ import re
 from collections import defaultdict
 
 import database as db
+from sqlalchemy import text, bindparam
 
 
 # ==================== GPU ====================
@@ -311,8 +312,8 @@ def _match_category_products(products, key_fn, matched_ids, conn):
         for p in representatives:
             if p["id"] != canonical_id:
                 conn.execute(
-                    "UPDATE products SET canonical_id = ? WHERE id = ?",
-                    (canonical_id, p["id"]),
+                    text("UPDATE products SET canonical_id = :cid WHERE id = :id"),
+                    {"cid": canonical_id, "id": p["id"]},
                 )
                 matched_ids.add(p["id"])
                 count += 1
@@ -338,40 +339,43 @@ def run_matching():
     conn = db.get_connection()
     try:
         # Загружаем все товары с категорией и источником
-        rows = conn.execute("""
+        rows = conn.execute(text("""
             SELECT p.id, p.name, p.category, o.source
             FROM products p
             JOIN offers o ON o.product_id = p.id
             GROUP BY p.id
-        """).fetchall()
+        """)).mappings().fetchall()
 
         products = [dict(r) for r in rows]
 
         # Очищаем старые результаты матчинга только для товаров с офферами
         if products:
-            placeholders = ",".join("?" * len(products))
             ids = [p["id"] for p in products]
             conn.execute(
-                f"UPDATE products SET canonical_id = NULL WHERE id IN ({placeholders})",
-                ids,
+                text("UPDATE products SET canonical_id = NULL WHERE id IN :ids").bindparams(
+                    bindparam("ids", expanding=True)
+                ),
+                {"ids": ids},
             )
 
         # Обновляем brand/model из названий для GPU
         for p in products:
             brand = extract_gpu_brand(p["name"])
             chip = extract_gpu_chip(p["name"])
-            fields, params = [], []
-            if brand:
-                fields.append("brand = ?")
-                params.append(brand)
-            if chip:
-                fields.append("model = ?")
-                params.append(chip)
-            if fields:
-                params.append(p["id"])
+            if brand and chip:
                 conn.execute(
-                    f"UPDATE products SET {', '.join(fields)} WHERE id = ?",
-                    params,
+                    text("UPDATE products SET brand = :brand, model = :model WHERE id = :id"),
+                    {"brand": brand, "model": chip, "id": p["id"]},
+                )
+            elif brand:
+                conn.execute(
+                    text("UPDATE products SET brand = :brand WHERE id = :id"),
+                    {"brand": brand, "id": p["id"]},
+                )
+            elif chip:
+                conn.execute(
+                    text("UPDATE products SET model = :model WHERE id = :id"),
+                    {"model": chip, "id": p["id"]},
                 )
 
         matched_ids: set = set()
@@ -401,8 +405,8 @@ def run_matching():
                     canonical_id = min(c["id"], r["id"])
                     other_id    = max(c["id"], r["id"])
                     conn.execute(
-                        "UPDATE products SET canonical_id = ? WHERE id = ?",
-                        (canonical_id, other_id),
+                        text("UPDATE products SET canonical_id = :cid WHERE id = :id"),
+                        {"cid": canonical_id, "id": other_id},
                     )
                     matched_ids.add(other_id)
                     matched_tier1 += 1
