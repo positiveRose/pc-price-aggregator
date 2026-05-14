@@ -51,9 +51,10 @@ CITILINK_CATEGORIES = {
 
 _CARD_SELECTOR = CitilinkParser.CARD_SELECTOR
 _WAIT_TIMEOUT  = 45000
-_PAGE_DELAY    = 5   # секунд между страницами одной категории
+_PAGE_DELAY    = 8   # секунд между страницами одной категории
 _CAT_DELAY     = 5   # секунд между категориями
-_CAT_HARD_TIMEOUT = 700  # секунд на одну категорию до принудительного kill subprocess
+_CAT_HARD_TIMEOUT = 900  # секунд на одну категорию до принудительного kill subprocess
+_PAGE_RETRY_DELAY = 20   # секунд ожидания перед повтором упавшей страницы
 
 
 def _make_parser(category, url):
@@ -188,28 +189,45 @@ def _run_category_internal(key, output_path=None):
                 time.sleep(_PAGE_DELAY)
                 page_url = parser.get_page_url(page_num)
                 print(f"[citilink] [{cat}] Стр. {page_num}: {page_url}", flush=True)
-                try:
-                    html = _load_page(page, page_url)
-                    all_products.extend(parser.parse_products(html))
-                    _save(all_products)
-                except Exception as e:
-                    print(f"[citilink] Ошибка на стр. {page_num}: {e}", flush=True)
-                    if "crash" in str(e).lower():
-                        # Page crashed (OOM) — пересоздаём context и page
-                        print(f"[citilink] [{cat}] Page crash на стр. {page_num}, "
-                              f"пересоздаю context...", flush=True)
-                        try:
-                            context.close()
-                        except Exception:
-                            pass
-                        try:
-                            context = browser.new_context(**ctx_opts)
-                            page = context.new_page()
-                            Stealth().apply_stealth_sync(page)
-                            page.route("**/*", _block_resources)
-                        except Exception as e2:
-                            print(f"[citilink] Не удалось пересоздать context: {e2}", flush=True)
+
+                def _recreate_context():
+                    nonlocal context, page
+                    try:
+                        context.close()
+                    except Exception:
+                        pass
+                    try:
+                        context = browser.new_context(**ctx_opts)
+                        page = context.new_page()
+                        Stealth().apply_stealth_sync(page)
+                        page.route("**/*", _block_resources)
+                        return True
+                    except Exception as e2:
+                        print(f"[citilink] [{cat}] Не удалось пересоздать context: {e2}", flush=True)
+                        return False
+
+                success = False
+                for attempt in range(2):  # 0 = первая попытка, 1 = retry
+                    try:
+                        html = _load_page(page, page_url)
+                        all_products.extend(parser.parse_products(html))
+                        _save(all_products)
+                        success = True
+                        break
+                    except Exception as e:
+                        print(f"[citilink] [{cat}] Ошибка на стр. {page_num} "
+                              f"(попытка {attempt + 1}): {e}", flush=True)
+                        # При любой ошибке пересоздаём context (сбрасываем сессию/куки)
+                        print(f"[citilink] [{cat}] Пересоздаю context, жду {_PAGE_RETRY_DELAY}s...", flush=True)
+                        ok = _recreate_context()
+                        if not ok:
                             break
+                        if attempt == 0:
+                            time.sleep(_PAGE_RETRY_DELAY)
+                        else:
+                            print(f"[citilink] [{cat}] Стр. {page_num} пропущена после {attempt + 1} попыток", flush=True)
+                if not success:
+                    pass  # уже напечатали лог, продолжаем
 
         except Exception as e:
             print(f"[citilink] [{cat}] ОШИБКА: {e}", flush=True)
