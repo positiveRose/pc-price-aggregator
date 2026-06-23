@@ -43,7 +43,7 @@ static/                  — CSS
 
 ```bash
 # Клонировать репозиторий
-git clone https://github.com/YOUR_USERNAME/pc-price-aggregator
+git clone https://github.com/positiveRose/pc-price-aggregator
 cd pc-price-aggregator
 
 # Установить зависимости
@@ -85,10 +85,6 @@ python main.py --match
 **Stealth Playwright** — обход базового обнаружения headless-браузера через `playwright-stealth`.
 
 **Bulk-запросы в БД** — корзина и поиск загружают все связанные офферы за 3 SQL-запроса вместо N+1.
-
-## Скриншоты
-
-> Добавь скриншоты интерфейса сюда
 
 ## Лицензия
 
