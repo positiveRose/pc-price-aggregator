@@ -121,6 +121,7 @@ def _insert_batch(conn, table: str, rows: list[dict], conflict_col: str = "id") 
     sql = (
         f"INSERT INTO {table} ({col_names}) VALUES ({placeholders}) "
         f"ON CONFLICT DO NOTHING"
+    
     )
 
     inserted = 0
